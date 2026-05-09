@@ -9,6 +9,7 @@
 #include "layers/layer_norm.h"
 #include "layers/linear.h"
 #include "data/tokenizer.h"
+#include "core/layer_utils.h"
 
 class Transformer {
 private:
@@ -26,13 +27,6 @@ private:
     LayerNorm finalNorm_;
     Linear outputHead_;
 
-    Tensor flatten3DTo2D(const Tensor& input) const;
-    Tensor unflatten2DTo3D(
-        const Tensor& input,
-        size_t batchSize,
-        size_t sequenceLength
-    ) const;
-
 public:
     Transformer(
         size_t vocabSize,
@@ -48,6 +42,7 @@ public:
         const CharTokenizer& tokenizer,
         size_t maxNewTokens,
         float temperature,
+        size_t topK,
         Random& rng
     ) const;
 

@@ -3,6 +3,7 @@
 
 #include <stdexcept>
 #include <algorithm>
+#include <utility>
 
 Transformer::Transformer(
     size_t vocabSize,
@@ -27,54 +28,6 @@ Transformer::Transformer(
     for (size_t i = 0; i < numLayers_; ++i) {
         blocks_.emplace_back(embedDim_, hiddenDim_, rng);
     }
-}
-
-Tensor Transformer::flatten3DTo2D(const Tensor& input) const {
-    if (input.rank() != 3) {
-        throw std::invalid_argument("flatten3DTo2D expects input shape [batch, sequence, features].");
-    }
-
-    size_t batchSize = input.shape()[0];
-    size_t sequenceLength = input.shape()[1];
-    size_t featureSize = input.shape()[2];
-
-    Tensor output({ batchSize * sequenceLength, featureSize }, 0.0f);
-
-    for (size_t b = 0; b < batchSize; ++b) {
-        for (size_t t = 0; t < sequenceLength; ++t) {
-            for (size_t f = 0; f < featureSize; ++f) {
-                output.at({ b * sequenceLength + t, f }) =
-                    input.at({ b, t, f });
-            }
-        }
-    }
-
-    return output;
-}
-
-Tensor Transformer::unflatten2DTo3D(
-    const Tensor& input,
-    size_t batchSize,
-    size_t sequenceLength
-) const {
-    if (input.rank() != 2) {
-        throw std::invalid_argument("unflatten2DTo3D expects input shape [batch * sequence, features].");
-    }
-
-    size_t featureSize = input.shape()[1];
-
-    Tensor output({ batchSize, sequenceLength, featureSize }, 0.0f);
-
-    for (size_t b = 0; b < batchSize; ++b) {
-        for (size_t t = 0; t < sequenceLength; ++t) {
-            for (size_t f = 0; f < featureSize; ++f) {
-                output.at({ b, t, f }) =
-                    input.at({ b * sequenceLength + t, f });
-            }
-        }
-    }
-
-    return output;
 }
 
 Tensor Transformer::forward(const Tensor& tokenIds) const {
@@ -109,10 +62,10 @@ Tensor Transformer::forward(const Tensor& tokenIds) const {
 
     x = finalNorm_.forward(x);
 
-    Tensor flat = flatten3DTo2D(x);
+    Tensor flat = LayerUtils::flatten3DTo2D(x);
     Tensor logitsFlat = outputHead_.forward(flat);
 
-    return unflatten2DTo3D(logitsFlat, batchSize, sequenceLength);
+    return LayerUtils::unflatten2DTo3D(logitsFlat, batchSize, sequenceLength);
 }
 
 std::string Transformer::generate(
@@ -120,10 +73,15 @@ std::string Transformer::generate(
     const CharTokenizer& tokenizer,
     size_t maxNewTokens,
     float temperature,
+    size_t topK,
     Random& rng
 ) const {
     if (temperature <= 0.0f) {
         throw std::invalid_argument("Temperature must be > 0.");
+    }
+
+    if (topK == 0 || topK > vocabSize_) {
+        topK = vocabSize_;
     }
 
     std::vector<size_t> tokenIds = tokenizer.encode(prompt);
@@ -148,26 +106,45 @@ std::string Transformer::generate(
 
         size_t lastPosition = currentLength - 1;
 
-        std::vector<float> scaledLogits(vocabSize_);
+        std::vector<std::pair<float, size_t>> candidates;
+        candidates.reserve(vocabSize_);
 
         for (size_t v = 0; v < vocabSize_; ++v) {
-            scaledLogits[v] =
+            float scaledLogit =
                 logits.at({ 0, lastPosition, v }) / temperature;
+
+            candidates.push_back({ scaledLogit, v });
+        }
+
+        std::sort(
+            candidates.begin(),
+            candidates.end(),
+            [](const auto& a, const auto& b) {
+                return a.first > b.first;
+            }
+        );
+
+        std::vector<float> topLogits;
+        std::vector<size_t> topIds;
+
+        for (size_t i = 0; i < topK; ++i) {
+            topLogits.push_back(candidates[i].first);
+            topIds.push_back(candidates[i].second);
         }
 
         std::vector<float> probabilities =
-            MathUtils::softmax(scaledLogits);
+            MathUtils::softmax(topLogits);
 
         float sample = rng.uniform(0.0f, 1.0f);
 
         float cumulative = 0.0f;
-        size_t selectedId = vocabSize_ - 1;
+        size_t selectedId = topIds.back();
 
-        for (size_t v = 0; v < vocabSize_; ++v) {
-            cumulative += probabilities[v];
+        for (size_t i = 0; i < probabilities.size(); ++i) {
+            cumulative += probabilities[i];
 
             if (sample <= cumulative) {
-                selectedId = v;
+                selectedId = topIds[i];
                 break;
             }
         }

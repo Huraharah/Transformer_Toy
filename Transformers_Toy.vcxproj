@@ -20,6 +20,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\core\layer.h" />
+    <ClInclude Include="include\core\layer_utils.h" />
     <ClInclude Include="include\core\math_utils.h" />
     <ClInclude Include="include\core\random.h" />
     <ClInclude Include="include\core\tensor.h" />
@@ -39,6 +40,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="src\core\layer.cpp" />
+    <ClCompile Include="src\core\layer_utils.cpp" />
     <ClCompile Include="src\core\math_utils.cpp" />
     <ClCompile Include="src\core\random.cpp" />
     <ClCompile Include="src\core\tensor.cpp" />

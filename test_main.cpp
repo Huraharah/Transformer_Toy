@@ -442,12 +442,14 @@ int main() {
         prompt,
         dataset.tokenizer(),
         80,
-		2.0f, //temperature
+        1.0f,  // temperature
+        10,    // topK
         sampleRng
     );
 
     std::cout << "Prompt:\n" << prompt << "\n\n";
     std::cout << "Generated:\n" << generated << "\n\n";
+	//std::cout << "Generation test is commented out to save time during testing. Uncomment to run.\n\n";
 
     std::cout << "==================================================\n";
     std::cout << "||                 Batch Test                   ||\n";
@@ -478,6 +480,40 @@ int main() {
         std::cout << "Sample " << b << " target: ["
             << dataset.tokenizer().decode(targetIds) << "]\n";
     }
+
+    std::cout << "\n==================================================\n";
+    std::cout << "||                  Loss Test                   ||\n";
+    std::cout << "==================================================\n";
+
+    Random lossModelRng(1357);
+
+    Transformer lossModel(
+        dataset.vocabSize(),
+        dataset.contextLength(),
+        32,
+        128,
+        2,
+        lossModelRng
+    );
+
+    Tensor lossInputs;
+    Tensor lossTargets;
+
+    Random lossBatchRng(2468);
+    dataset.getBatch(4, lossBatchRng, lossInputs, lossTargets);
+
+    Tensor lossLogits = lossModel.forward(lossInputs);
+
+    float loss = MathUtils::crossEntropyLoss(lossLogits, lossTargets);
+    float ppl = MathUtils::perplexity(loss);
+    float acc = MathUtils::tokenAccuracy(lossLogits, lossTargets);
+
+    std::cout << "Input shape: " << lossInputs.shapeString() << "\n";
+    std::cout << "Target shape: " << lossTargets.shapeString() << "\n";
+    std::cout << "Logits shape: " << lossLogits.shapeString() << "\n";
+    std::cout << "Cross-entropy loss: " << loss << "\n";
+    std::cout << "Perplexity: " << ppl << "\n";
+    std::cout << "Token accuracy: " << acc << "\n";
 
     return 0;
 }

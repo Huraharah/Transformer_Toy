@@ -14,4 +14,10 @@ namespace MathUtils {
 
 	Tensor add(const Tensor& a, const Tensor& b);
 
+	float crossEntropyLoss(const Tensor& logits, const Tensor& targets);
+
+	float perplexity(float crossEntropyLoss);
+
+	float tokenAccuracy(const Tensor& logits, const Tensor& targets);
+
 }
