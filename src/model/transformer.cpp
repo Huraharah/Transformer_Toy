@@ -5,29 +5,48 @@
 #include <algorithm>
 #include <utility>
 
+Transformer::Transformer(const TransformerModelConfig& config, Random& rng)
+    : config_(config),
+	maxSequenceLength_(config.max_seq_len),
+    vocabSize_(config.vocab_size),
+    contextLength_(config.max_seq_len),
+    embedDim_(config.block.d_model),
+    hiddenDim_(config.block.d_ff),
+    numLayers_(config.num_layers),
+    tokenEmbedding_(config.vocab_size, config.block.d_model, rng),
+    positionEmbedding_(config.max_seq_len, config.block.d_model, rng),
+    finalNorm_(config.block.d_model),
+    outputHead_(config.block.d_model, config.vocab_size, rng) {
+
+    config_.validate();
+
+    blocks_.reserve(numLayers_);
+
+    for (size_t i = 0; i < numLayers_; ++i) {
+        blocks_.emplace_back(config_.block, rng);
+    }
+}
+
 Transformer::Transformer(
     size_t vocabSize,
-    size_t maxSequenceLength,
+    size_t contextLength,
     size_t embedDim,
     size_t hiddenDim,
     size_t numLayers,
     Random& rng
 )
-    : vocabSize_(vocabSize),
-    maxSequenceLength_(maxSequenceLength),
-    embedDim_(embedDim),
-    hiddenDim_(hiddenDim),
-    numLayers_(numLayers),
-    tokenEmbedding_(vocabSize, embedDim, rng),
-    positionEmbedding_(maxSequenceLength, embedDim, rng),
-    finalNorm_(embedDim),
-    outputHead_(embedDim, vocabSize, rng) {
-
-    blocks_.reserve(numLayers_);
-
-    for (size_t i = 0; i < numLayers_; ++i) {
-        blocks_.emplace_back(embedDim_, hiddenDim_, rng);
-    }
+    : Transformer(
+        TransformerModelConfig(
+            static_cast<int>(vocabSize),
+            static_cast<int>(contextLength),
+            static_cast<int>(numLayers),
+            TransformerBlockConfig(
+                static_cast<int>(embedDim),
+                static_cast<int>(hiddenDim)
+            )
+        ),
+        rng
+    ) {
 }
 
 Tensor Transformer::forward(const Tensor& tokenIds) const {

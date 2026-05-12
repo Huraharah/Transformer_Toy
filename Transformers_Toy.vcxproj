@@ -27,6 +27,7 @@
     <ClInclude Include="include\data\dataset.h" />
     <ClInclude Include="include\data\tokenizer.h" />
     <ClInclude Include="include\layers\attention.h" />
+    <ClInclude Include="include\layers\config.h" />
     <ClInclude Include="include\layers\embedding.h" />
     <ClInclude Include="include\layers\ffn.h" />
     <ClInclude Include="include\layers\layer_norm.h" />

@@ -5,20 +5,25 @@
 #include "layers/layer_norm.h"
 #include "layers/attention.h"
 #include "layers/ffn.h"
+#include "layers/config.h"
+
 
 class TransformerBlock {
 private:
+    TransformerBlockConfig config_;
+
     size_t embedDim_;
     size_t hiddenDim_;
 
     LayerNorm norm1_;
-    SelfAttention attention_;
-
     LayerNorm norm2_;
     FFN ffn_;
 
+    std::unique_ptr<SelfAttention> singleAttention_;
+    std::unique_ptr<MultiHeadAttention> multiAttention_;
+
 public:
-    TransformerBlock(size_t embedDim, size_t hiddenDim, Random& rng);
+    TransformerBlock(const TransformerBlockConfig& config, Random& rng);
 
     Tensor forward(const Tensor& input) const;
 };

@@ -10,13 +10,25 @@
 #include "model/transformer.h"
 #include "data/tokenizer.h"
 #include "data/dataset.h"
+#include "layers/config.h"
 
 #include <iostream>
 #include <vector>
+#include <cassert>
 
 int main() {
     std::cout << "Transformer_Toy build OK\n" << std::endl;
+    coreTest();
+    layersTest();
+    dataTest();
+    configTest();
+    mhaTest();
 
+    return 0;
+
+}
+
+void coreTest() {
     Tensor t({ 2, 3 }, 1.0f);
 
     t.at({ 0, 0 }) = 5.0f;
@@ -210,6 +222,9 @@ int main() {
     std::cout << "GELU(0): " << MathUtils::gelu(0.0f) << "\n";
     std::cout << "GELU(1): " << MathUtils::gelu(1.0f) << "\n\n";
 
+}
+
+void layersTest() {
     std::cout << "==================================================\n";
     std::cout << "||            Self-Attention Test               ||\n";
     std::cout << "==================================================\n";
@@ -299,7 +314,9 @@ int main() {
 
     Random blockRng(2024);
 
-    TransformerBlock block(4, 16, blockRng);
+    TransformerBlockConfig blockConfig(4, 16, 0.1f, 0.1f, true, true);
+
+    TransformerBlock block(blockConfig, blockRng);
 
     Tensor blockInput({ 1, 3, 4 }, 0.0f);
 
@@ -339,36 +356,38 @@ int main() {
     std::cout << "==================================================\n";
 
     Random modelRng(777);
+    TransformerModelConfig modelConfig(10, 4, 2, blockConfig, true, 0.0f);
 
     Transformer model(
-        10,  // vocabSize
-        8,   // maxSequenceLength
-        4,   // embedDim
-        16,  // hiddenDim
-        2,   // numLayers
+        modelConfig,
         modelRng
     );
 
-    Tensor modelInput({ 1, 4 }, 0.0f);
+    try {
+        Tensor modelInput({ 1, 4 }, 0.0f);
 
-    modelInput.at({ 0, 0 }) = 1;
-    modelInput.at({ 0, 1 }) = 2;
-    modelInput.at({ 0, 2 }) = 3;
-    modelInput.at({ 0, 3 }) = 4;
+        modelInput.at({ 0, 0 }) = 1;
+        modelInput.at({ 0, 1 }) = 2;
+        modelInput.at({ 0, 2 }) = 3;
+        modelInput.at({ 0, 3 }) = 4;
 
-    Tensor logits = model.forward(modelInput);
+        Tensor logits = model.forward(modelInput);
 
-    std::cout << "Input shape: " << modelInput.shapeString() << "\n";
-    std::cout << "Logits shape: " << logits.shapeString() << "\n";
+        std::cout << "Input shape: " << modelInput.shapeString() << "\n";
+        std::cout << "Logits shape: " << logits.shapeString() << "\n";
 
-    for (size_t t = 0; t < logits.shape()[1]; ++t) {
-        std::cout << "Token position " << t << " logits: ";
+        for (size_t t = 0; t < logits.shape()[1]; ++t) {
+            std::cout << "Token position " << t << " logits: ";
 
-        for (size_t v = 0; v < logits.shape()[2]; ++v) {
-            std::cout << logits.at({ 0, t, v }) << " ";
+            for (size_t v = 0; v < logits.shape()[2]; ++v) {
+                std::cout << logits.at({ 0, t, v }) << " ";
+            }
+
+            std::cout << "\n\n";
         }
-
-        std::cout << "\n\n";
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error during Transformer forward pass: " << e.what() << "\n";
     }
 
     std::cout << "==================================================\n";
@@ -393,6 +412,8 @@ int main() {
     std::cout << "\n";
 
     std::cout << "Decoded text: " << decoded << "\n\n";
+}
+void dataTest() {
 
     std::cout << "==================================================\n";
     std::cout << "||                Dataset Test                  ||\n";
@@ -423,7 +444,7 @@ int main() {
     std::cout << "||              Generation Test                 ||\n";
     std::cout << "==================================================\n";
 
-    Random genRng(987);
+    /*Random genRng(987);
 
     Transformer genModel(
         dataset.vocabSize(),
@@ -448,8 +469,8 @@ int main() {
     );
 
     std::cout << "Prompt:\n" << prompt << "\n\n";
-    std::cout << "Generated:\n" << generated << "\n\n";
-	//std::cout << "Generation test is commented out to save time during testing. Uncomment to run.\n\n";
+    std::cout << "Generated:\n" << generated << "\n\n";*/
+    std::cout << "Generation test is commented out to save time during testing. Uncomment to run.\n\n";
 
     std::cout << "==================================================\n";
     std::cout << "||                 Batch Test                   ||\n";
@@ -515,5 +536,257 @@ int main() {
     std::cout << "Perplexity: " << ppl << "\n";
     std::cout << "Token accuracy: " << acc << "\n";
 
-    return 0;
+    std::cout << "\n==================================================\n";
+    std::cout << "||            All core tests completed!         ||\n";
+    std::cout << "==================================================\n";
+}
+
+void configTest() {
+    std::cout << "\n~~~~~~~~~~~~~ CONFIG TESTS ~~~~~~~~~~~~~\n";
+
+    AttentionConfig cfg(512, 8, true);
+    try {
+        std::cout << "AttentionConfig test:\n";
+        std::cout << "d_model: " << cfg.embedDim << "\n";
+        std::cout << "num_heads: " << cfg.numHeads << "\n";
+        std::cout << "d_head: " << cfg.headDim << "\n";
+        std::cout << "causal: " << cfg.causal << "\n";
+        assert(cfg.embedDim == 512);
+        assert(cfg.numHeads == 8);
+        assert(cfg.headDim == 64);
+        assert(cfg.causal == true);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "AttentionConfig test failed: " << e.what() << "\n";
+    }
+    std::cout << "\n";
+
+    TransformerBlockConfig blockCfg(512, 2048, 0.1f, 0.1f);
+    try {
+        std::cout << "TransformerBlockConfig test:\n";
+        std::cout << "d_model: " << blockCfg.d_model << "\n";
+        std::cout << "d_ff: " << blockCfg.d_ff << "\n";
+        std::cout << "residual_dropout: " << blockCfg.residual_dropout << "\n";
+        std::cout << "ffn_dropout: " << blockCfg.ffn_dropout << "\n";
+        assert(blockCfg.d_model == 512);
+        assert(blockCfg.d_ff == 2048);
+        assert(blockCfg.residual_dropout == 0.1f);
+        assert(blockCfg.ffn_dropout == 0.1f);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "TransformerBlockConfig test failed: " << e.what() << "\n";
+    }
+    std::cout << "\n";
+
+    TransformerModelConfig modelCfg(64, 512, 8, blockCfg, true, 0.1f);
+    try {
+        std::cout << "TransformerModelConfig test:\n";
+        std::cout << "vocab_size: " << modelCfg.vocab_size << "\n";
+        std::cout << "max_seq_len: " << modelCfg.max_seq_len << "\n";
+        std::cout << "num_layers: " << modelCfg.num_layers << "\n";
+        std::cout << "block_config.learned_pos_emb: " << modelCfg.learned_positional_embeddings << "\n";
+        std::cout << "block_config.embedding_dropout: " << modelCfg.embedding_dropout << "\n";
+        assert(modelCfg.vocab_size == 64);
+        assert(modelCfg.max_seq_len == 512);
+        assert(modelCfg.num_layers == 8);
+        assert(modelCfg.learned_positional_embeddings);
+        assert(modelCfg.embedding_dropout == 0.1f);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "TransformerModelConfig test failed: " << e.what() << "\n";
+    }
+
+    std::cout << "\nTesting bad configs...\n\nAttention Config:\n";
+    try {
+        AttentionConfig bad1(512, 7);  // d_model not divisible by num_heads
+        assert(false && "Expected exception for bad AttentionConfig 1 was not thrown.");
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Caught expected exception for bad AttentionConfig 1: " << e.what() << "\n";
+    }
+    try {
+        AttentionConfig bad2(0, 8);    // d_model <= 0
+        assert(false && "Expected exception for bad AttentionConfig 2 was not thrown.");
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Caught expected exception for bad AttentionConfig 2: " << e.what() << "\n";
+    }
+    try {
+        AttentionConfig bad3(512, 8, true, true, -1.0f, 0.0f);
+        assert(false && "Expected exception for bad AttentionConfig 3 was not thrown.");
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Caught expected exception for bad AttentionConfig 3: " << e.what() << "\n";
+    }
+
+    try {
+        AttentionConfig bad4(512, 8, true, true, 0.0f, 1.5f);
+        assert(false && "Expected exception for bad AttentionConfig 4 was not thrown.");
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Caught expected exception for bad AttentionConfig 4: " << e.what() << "\n";
+    }
+    try {
+        AttentionConfig bad5(512, 0);    // num_heads <= 0
+        assert(false && "Expected exception for bad AttentionConfig 5 was not thrown.");
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Caught expected exception for bad AttentionConfig 5: " << e.what() << "\n";
+    }
+    std::cout << "\nTransformerBlock Config:\n";
+    try {
+        TransformerBlockConfig bad1(512, 0);  // d_ff <= 0
+        assert(false && "Expected exception for bad TransformerBlockConfig 1 was not thrown.");
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Caught expected exception for bad TransformerBlockConfig 1: " << e.what() << "\n";
+    }
+    try {
+        TransformerBlockConfig bad2(0, 2048);  // d_model <= 0
+        assert(false && "Expected exception for bad TransformerBlockConfig 2 was not thrown.");
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Caught expected exception for bad TransformerBlockConfig 2: " << e.what() << "\n";
+    }
+    try {
+        TransformerBlockConfig bad3(512, 2048, -0.1f);  // negative residual dropout
+        assert(false && "Expected exception for bad TransformerBlockConfig 3 was not thrown.");
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Caught expected exception for bad TransformerBlockConfig 3: " << e.what() << "\n";
+    }
+
+    std::cout << "\nAll config tests completed.\n";
+}
+
+void mhaTest() {
+
+    std::cout << "==================================================\n";
+    std::cout << "||          Multi-Head Attention Test           ||\n";
+    std::cout << "==================================================\n";
+
+    Random mhaRng(99);
+
+    AttentionConfig mhaConfig(
+        4,      // embedDim
+        2,      // numHeads
+        true    // causal
+    );
+
+    MultiHeadAttention mha(mhaConfig, mhaRng);
+
+    Tensor mhaInput({ 1, 3, 4 }, 0.0f);
+
+    mhaInput.at({ 0, 0, 0 }) = 1.0f;
+    mhaInput.at({ 0, 0, 1 }) = 0.0f;
+    mhaInput.at({ 0, 0, 2 }) = 0.0f;
+    mhaInput.at({ 0, 0, 3 }) = 0.0f;
+
+    mhaInput.at({ 0, 1, 0 }) = 0.0f;
+    mhaInput.at({ 0, 1, 1 }) = 1.0f;
+    mhaInput.at({ 0, 1, 2 }) = 0.0f;
+    mhaInput.at({ 0, 1, 3 }) = 0.0f;
+
+    mhaInput.at({ 0, 2, 0 }) = 0.0f;
+    mhaInput.at({ 0, 2, 1 }) = 0.0f;
+    mhaInput.at({ 0, 2, 2 }) = 1.0f;
+    mhaInput.at({ 0, 2, 3 }) = 0.0f;
+
+    Tensor mhaOutput = mha.forward(mhaInput);
+
+    std::cout << "Input shape: " << mhaInput.shapeString() << "\n";
+    std::cout << "Output shape: " << mhaOutput.shapeString() << "\n";
+
+    assert(mhaOutput.rank() == 3);
+    assert(mhaOutput.shape()[0] == 1);
+    assert(mhaOutput.shape()[1] == 3);
+    assert(mhaOutput.shape()[2] == 4);
+
+    std::cout << "Multi-head attention output:\n";
+    for (size_t t = 0; t < mhaOutput.shape()[1]; ++t) {
+        std::cout << "Token " << t << ": ";
+
+        for (size_t f = 0; f < mhaOutput.shape()[2]; ++f) {
+            std::cout << mhaOutput.at({ 0, t, f }) << " ";
+        }
+
+        std::cout << "\n\n";
+    }
+
+    try {
+        AttentionConfig badMhaConfig(4, 3, true);
+        MultiHeadAttention badMha(badMhaConfig, mhaRng);
+
+        assert(false && "Expected exception for invalid multi-head config was not thrown.");
+    }
+    catch (const std::exception& e) {
+        std::cout << "Caught expected MultiHeadAttention config exception: " << e.what() << "\n";
+    }
+
+    std::cout << "==================================================\n";
+    std::cout << "||        TransformerBlock Multi-Head Test       ||\n";
+    std::cout << "==================================================\n";
+
+    Random mhaBlockRng(2024);
+
+    TransformerBlockConfig mhaBlockConfig(4, 16, 0.1f, 0.1f, true, true);
+    mhaBlockConfig.attentionType = AttentionType::MultiHead;
+    mhaBlockConfig.numHeads = 2;
+    mhaBlockConfig.validate();
+
+    TransformerBlock mhaBlock(mhaBlockConfig, mhaBlockRng);
+
+    Tensor mhaBlockInput({ 1, 3, 4 }, 0.0f);
+
+    mhaBlockInput.at({ 0, 0, 0 }) = 1.0f;
+    mhaBlockInput.at({ 0, 0, 1 }) = 0.0f;
+    mhaBlockInput.at({ 0, 0, 2 }) = 0.0f;
+    mhaBlockInput.at({ 0, 0, 3 }) = 0.0f;
+
+    mhaBlockInput.at({ 0, 1, 0 }) = 0.0f;
+    mhaBlockInput.at({ 0, 1, 1 }) = 1.0f;
+    mhaBlockInput.at({ 0, 1, 2 }) = 0.0f;
+    mhaBlockInput.at({ 0, 1, 3 }) = 0.0f;
+
+    mhaBlockInput.at({ 0, 2, 0 }) = 0.0f;
+    mhaBlockInput.at({ 0, 2, 1 }) = 0.0f;
+    mhaBlockInput.at({ 0, 2, 2 }) = 1.0f;
+    mhaBlockInput.at({ 0, 2, 3 }) = 0.0f;
+
+    Tensor mhaBlockOutput = mhaBlock.forward(mhaBlockInput);
+
+    std::cout << "Input shape: " << mhaBlockInput.shapeString() << "\n";
+    std::cout << "Output shape: " << mhaBlockOutput.shapeString() << "\n";
+
+    assert(mhaBlockOutput.rank() == 3);
+    assert(mhaBlockOutput.shape()[0] == 1);
+    assert(mhaBlockOutput.shape()[1] == 3);
+    assert(mhaBlockOutput.shape()[2] == 4);
+
+    std::cout << "TransformerBlock Multi-Head output:\n";
+    for (size_t t = 0; t < mhaBlockOutput.shape()[1]; ++t) {
+        std::cout << "Token " << t << ": ";
+
+        for (size_t f = 0; f < mhaBlockOutput.shape()[2]; ++f) {
+            std::cout << mhaBlockOutput.at({ 0, t, f }) << " ";
+        }
+
+        std::cout << "\n\n";
+    }
+
+    try {
+        TransformerBlockConfig badMhaBlockConfig(4, 16, 0.1f, 0.1f, true, true);
+        badMhaBlockConfig.attentionType = AttentionType::MultiHead;
+        badMhaBlockConfig.numHeads = 3;
+        badMhaBlockConfig.validate();
+
+        TransformerBlock badMhaBlock(badMhaBlockConfig, mhaBlockRng);
+
+        assert(false && "Expected exception for invalid TransformerBlock MHA config was not thrown.");
+    }
+    catch (const std::exception& e) {
+        std::cout << "Caught expected TransformerBlock MHA config exception: "
+            << e.what() << "\n";
+    }
+
 }

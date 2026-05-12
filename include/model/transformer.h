@@ -10,6 +10,7 @@
 #include "layers/linear.h"
 #include "data/tokenizer.h"
 #include "core/layer_utils.h"
+#include "layers/config.h"
 
 class Transformer {
 private:
@@ -18,9 +19,11 @@ private:
     size_t embedDim_;
     size_t hiddenDim_;
     size_t numLayers_;
-
+	size_t contextLength_;
     Embedding tokenEmbedding_;
     Embedding positionEmbedding_;
+
+	TransformerModelConfig config_;
 
     std::vector<TransformerBlock> blocks_;
 
@@ -29,13 +32,17 @@ private:
 
 public:
     Transformer(
+		const TransformerModelConfig& config,
+        Random& rng
+    );
+    Transformer(
         size_t vocabSize,
-        size_t maxSequenceLength,
+        size_t contextLength,
         size_t embedDim,
         size_t hiddenDim,
         size_t numLayers,
         Random& rng
-    );
+	);
 
     std::string generate(
         const std::string& prompt,
