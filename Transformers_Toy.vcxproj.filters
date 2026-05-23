@@ -63,6 +63,36 @@
     <ClInclude Include="include\layers\config.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="include\training\optimizer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\training\sgd_optimizer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\training\adam_optimizer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\training\loss.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\training\cross_entropy_loss.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\training\trainer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\training\training_history.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\training\checkpoint.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\core\parameter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\training\training_config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\core\layer.cpp">
@@ -116,5 +146,14 @@
     <ClCompile Include="src\core\layer_utils.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\training\checkpoint.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CudaCompile Include="src\training\adam_optimizer.cu" />
+    <CudaCompile Include="src\training\cross_entorpy_loss.cu" />
+    <CudaCompile Include="src\training\sgd_optimizer.cu" />
+    <CudaCompile Include="src\training\trainer.cu" />
   </ItemGroup>
 </Project>

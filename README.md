@@ -36,7 +36,9 @@ Implemented:
 
 ## Milestone 2 — Multi-Head Attention and Architecture Controls
 
-Planned:
+Status: Complete
+
+Implemented:
 - MultiHeadAttention layer
 - Configurable attention type
   - single-head
@@ -56,7 +58,9 @@ Planned:
 
 ## Milestone 3 — Training Infrastructure
 
-Planned options:
+Status: Complete
+
+Implemented::
 - Manual backpropagation for selected layers
 - Lightweight autograd engine
 - Optimizer support
@@ -66,6 +70,21 @@ Planned options:
 - Training loop
 - Checkpoint save/load
 - Loss tracking over time
+
+### Milestone 3.5 — CUDA Acceleration refactor
+Status: In progress
+
+Planned:
+- Device-aware Tensor
+- CUDA utility/error wrapper
+- CPU/GPU copy and fill tests
+- GPU SGD
+- GPU Adam
+- GPU CrossEntropyLoss
+- GPU Dense/Linear
+- GPU Transformer component pass
+- Trainer device config
+- CPU vs GPU parity tests
 
 ## Milestone 4 — Architectural Experiments
 

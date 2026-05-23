@@ -11,22 +11,19 @@
 #include "data/tokenizer.h"
 #include "data/dataset.h"
 #include "layers/config.h"
+#include "training/sgd_optimizer.h"
+#include "core/parameter.h"
+#include "training/adam_optimizer.h"
+#include "training/cross_entropy_loss.h"
+#include "training/training_config.h"
+#include "training/training_history.h"
+#include "training/checkpoint.h"
+#include "training/trainer.h"
 
 #include <iostream>
 #include <vector>
 #include <cassert>
-
-int main() {
-    std::cout << "Transformer_Toy build OK\n" << std::endl;
-    coreTest();
-    layersTest();
-    dataTest();
-    configTest();
-    mhaTest();
-
-    return 0;
-
-}
+#include <cmath>
 
 void coreTest() {
     Tensor t({ 2, 3 }, 1.0f);
@@ -457,14 +454,22 @@ void dataTest() {
 
     std::string prompt = "First Citizen:";
 
-    Random sampleRng(555);
+    GenerationConfig genConfig(
+        80,     // maxNewTokens
+        1.0f,   // temperature
+        10,     // topK
+        false,  // greedySampling
+        true,   // printGeneratedText
+        false,  // printTokenIds
+        555     // randomSeed
+    );
+
+    Random sampleRng(genConfig.randomSeed);
 
     std::string generated = genModel.generate(
         prompt,
         dataset.tokenizer(),
-        80,
-        1.0f,  // temperature
-        10,    // topK
+        genConfig,
         sampleRng
     );
 
@@ -653,7 +658,43 @@ void configTest() {
         assert(false && "Expected exception for bad TransformerBlockConfig 3 was not thrown.");
     }
     catch (const std::exception& e) {
-        std::cerr << "Caught expected exception for bad TransformerBlockConfig 3: " << e.what() << "\n";
+        std::cerr << "Caught expected exception for bad TransformerBlockConfig 3: " << e.what() << "\n\n";
+    }
+
+    std::cout << "GenerationConfig test:\n";
+
+    GenerationConfig genCfg(64, 0.8f, 10, false, true, false, 123);
+
+    assert(genCfg.maxNewTokens == 64);
+    assert(genCfg.temperature == 0.8f);
+    assert(genCfg.topK == 10);
+    assert(genCfg.greedySampling == false);
+    assert(genCfg.printGeneratedText == true);
+    assert(genCfg.printTokenIds == false);
+    assert(genCfg.randomSeed == 123);
+
+    try {
+        GenerationConfig badGenCfg(0);
+        assert(false && "Expected exception for bad GenerationConfig maxNewTokens was not thrown.");
+    }
+    catch (const std::exception& e) {
+        std::cout << "Caught expected GenerationConfig exception: " << e.what() << "\n";
+    }
+
+    try {
+        GenerationConfig badTempCfg(32, 0.0f);
+        assert(false && "Expected exception for bad GenerationConfig temperature was not thrown.");
+    }
+    catch (const std::exception& e) {
+        std::cout << "Caught expected GenerationConfig exception: " << e.what() << "\n";
+    }
+
+    try {
+        GenerationConfig badTopKCfg(32, 1.0f, 1);
+        assert(false && "Expected exception for bad GenerationConfig topK was not thrown.");
+    }
+    catch (const std::exception& e) {
+        std::cout << "Caught expected GenerationConfig exception: " << e.what() << "\n";
     }
 
     std::cout << "\nAll config tests completed.\n";
@@ -786,7 +827,475 @@ void mhaTest() {
     }
     catch (const std::exception& e) {
         std::cout << "Caught expected TransformerBlock MHA config exception: "
-            << e.what() << "\n";
+            << e.what() << "\n\n";
     }
+
+}
+
+void testParameterBasics() {
+
+	std::cout << "==================================================\n";
+	std::cout << "||             Training Test Bench              ||\n";
+	std::cout << "==================================================\n";
+
+    Tensor w({ 2, 3 }, 1.0f);
+
+    Parameter p(w, "test_weight");
+
+    assert(p.name == "test_weight");
+    assert(p.requires_grad);
+    assert(p.value.size() == 6);
+    assert(p.grad.size() == 6);
+
+    for (size_t i = 0; i < p.grad.size(); ++i) {
+        assert(p.grad[i] == 0.0f);
+    }
+
+    p.grad[0] = 5.0f;
+    p.zeroGrad();
+
+    for (size_t i = 0; i < p.grad.size(); ++i) {
+        assert(p.grad[i] == 0.0f);
+    }
+
+    p.validate();
+
+    std::cout << "\n[PASS] Parameter basics\n";
+}
+
+static bool near(float a, float b, float eps = 1e-5f) {
+    return std::fabs(a - b) < eps;
+}
+
+void testOptimizerZeroGrad() {
+    Tensor w({ 3 }, 1.0f);
+    Parameter p(w, "w");
+
+    p.grad[0] = 1.0f;
+    p.grad[1] = -2.0f;
+    p.grad[2] = 3.5f;
+
+    std::vector<Parameter*> params = { &p };
+
+    SGDOptimizer optimizer(0.1f);
+    optimizer.zeroGrad(params);
+
+    assert(near(p.grad[0], 0.0f));
+    assert(near(p.grad[1], 0.0f));
+    assert(near(p.grad[2], 0.0f));
+
+    std::cout << "[PASS] Optimizer zeroGrad\n";
+}
+
+void testSGDOptimizerBasicStep() {
+    Tensor w({ 3 }, 1.0f);
+    Parameter p(w, "w");
+
+    p.grad[0] = 0.25f;
+    p.grad[1] = 0.50f;
+    p.grad[2] = -1.00f;
+
+    std::vector<Parameter*> params = { &p };
+
+    SGDOptimizer optimizer(0.1f);
+    optimizer.step(params);
+
+    assert(near(p.value[0], 0.975f));
+    assert(near(p.value[1], 0.950f));
+    assert(near(p.value[2], 1.100f));
+
+    std::cout << "[PASS] SGD optimizer basic step\n";
+}
+
+void testSGDOptimizerWeightDecay() {
+    Tensor w({ 3 });
+    w[0] = 1.0f;
+    w[1] = 2.0f;
+    w[2] = -3.0f;
+
+    Parameter p(w, "w");
+
+    p.grad[0] = 0.25f;
+    p.grad[1] = 0.50f;
+    p.grad[2] = -1.00f;
+
+    std::vector<Parameter*> params = { &p };
+
+    float lr = 0.1f;
+    float weightDecay = 0.01f;
+
+    SGDOptimizer optimizer(lr, weightDecay);
+    optimizer.step(params);
+
+    // effective_grad = grad + weightDecay * value
+    assert(near(p.value[0], 1.0f - lr * (0.25f + 0.01f * 1.0f)));
+    assert(near(p.value[1], 2.0f - lr * (0.50f + 0.01f * 2.0f)));
+    assert(near(p.value[2], -3.0f - lr * (-1.00f + 0.01f * -3.0f)));
+
+    std::cout << "[PASS] SGD optimizer weight decay\n";
+}
+
+void testAdamOptimizerFirstStep() {
+    Tensor w({ 3 }, 1.0f);
+    Parameter p(w, "w");
+
+    p.grad[0] = 0.5f;
+    p.grad[1] = -0.5f;
+    p.grad[2] = 2.0f;
+
+    std::vector<Parameter*> params = { &p };
+
+    AdamOptimizer optimizer(
+        0.001f,  // lr
+        0.9f,    // beta1
+        0.999f,  // beta2
+        1e-8f,   // epsilon
+        0.0f     // weight decay
+    );
+
+    optimizer.step(params);
+
+    // On first Adam step with bias correction:
+    // m_hat ≈ grad, v_hat ≈ grad^2
+    // update ≈ lr * sign(grad)
+    assert(near(p.value[0], 0.999f));
+    assert(near(p.value[1], 1.001f));
+    assert(near(p.value[2], 0.999f));
+
+    std::cout << "[PASS] Adam optimizer first step\n";
+}
+
+void testAdamOptimizerMultipleStepsConstantGrad() {
+    Tensor w({ 1 }, 1.0f);
+    Parameter p(w, "w");
+
+    std::vector<Parameter*> params = { &p };
+
+    AdamOptimizer optimizer(0.001f);
+
+    for (int step = 0; step < 5; ++step) {
+        p.grad[0] = 0.5f;
+        optimizer.step(params);
+    }
+
+    // With constant positive grad, Adam should reduce by ~lr each step.
+    assert(near(p.value[0], 0.995f, 1e-5f));
+
+    std::cout << "[PASS] Adam optimizer multiple constant-gradient steps\n";
+}
+
+void testAdamOptimizerWeightDecay() {
+    Tensor w({ 1 }, 1.0f);
+    Parameter p(w, "w");
+
+    p.grad[0] = 0.5f;
+
+    std::vector<Parameter*> params = { &p };
+
+    AdamOptimizer optimizer(
+        0.001f,
+        0.9f,
+        0.999f,
+        1e-8f,
+        0.1f   // weight decay
+    );
+
+    optimizer.step(params);
+
+    // effective grad = 0.5 + 0.1 * 1.0 = 0.6
+    // first Adam step still approximately lr in positive direction
+    assert(near(p.value[0], 0.999f));
+
+    std::cout << "[PASS] Adam optimizer weight decay\n";
+}
+
+void testAdamOptimizerZeroGradInherited() {
+    Tensor w({ 2 }, 1.0f);
+    Parameter p(w, "w");
+
+    p.grad[0] = 3.0f;
+    p.grad[1] = -4.0f;
+
+    std::vector<Parameter*> params = { &p };
+
+    AdamOptimizer optimizer(0.001f);
+    optimizer.zeroGrad(params);
+
+    assert(near(p.grad[0], 0.0f));
+    assert(near(p.grad[1], 0.0f));
+
+    std::cout << "[PASS] Adam optimizer inherited zeroGrad\n";
+}
+
+void testCrossEntropyLossPerfectConfidence() {
+    Tensor logits({ 1, 3 });
+    logits[0] = 10.0f;
+    logits[1] = 0.0f;
+    logits[2] = 0.0f;
+
+    Tensor targets({ 1 });
+    targets[0] = 0.0f;
+
+    CrossEntropyLoss loss;
+
+    float value = loss.forward(logits, targets);
+    Tensor grad = loss.backward();
+
+    assert(value < 0.001f);
+    assert(grad.size() == logits.size());
+
+    std::cout << "[PASS] CrossEntropyLoss perfect confidence\n";
+}
+
+void testCrossEntropyLossUniformLogits() {
+    Tensor logits({ 1, 4 }, 0.0f);
+
+    Tensor targets({ 1 });
+    targets[0] = 2.0f;
+
+    CrossEntropyLoss loss;
+
+    float value = loss.forward(logits, targets);
+    Tensor grad = loss.backward();
+
+    assert(near(value, std::log(4.0f), 1e-5f));
+
+    assert(near(grad[0], 0.25f));
+    assert(near(grad[1], 0.25f));
+    assert(near(grad[2], -0.75f));
+    assert(near(grad[3], 0.25f));
+
+    std::cout << "[PASS] CrossEntropyLoss uniform logits\n";
+}
+
+void testCrossEntropyLossBatchAverage() {
+    Tensor logits({ 2, 3 });
+
+    // sample 0: uniform logits, target 0
+    logits[0] = 0.0f;
+    logits[1] = 0.0f;
+    logits[2] = 0.0f;
+
+    // sample 1: confident target 2
+    logits[3] = 0.0f;
+    logits[4] = 0.0f;
+    logits[5] = 10.0f;
+
+    Tensor targets({ 2 });
+    targets[0] = 0.0f;
+    targets[1] = 2.0f;
+
+    CrossEntropyLoss loss;
+
+    float value = loss.forward(logits, targets);
+    Tensor grad = loss.backward();
+
+    float expected = (std::log(3.0f) + 0.0000908f) / 2.0f;
+
+    assert(near(value, expected, 1e-4f));
+    assert(grad.size() == logits.size());
+
+    std::cout << "[PASS] CrossEntropyLoss batch average\n";
+}
+
+void testTrainingHistory() {
+    TrainingHistory history;
+
+    history.addTrainLoss(1.5f);
+    history.addTrainLoss(1.2f);
+    history.addValidationLoss(1.4f);
+
+    assert(near(history.latestTrainLoss(), 1.2f));
+    assert(near(history.latestValidationLoss(), 1.4f));
+
+    history.saveCsv("training_history_test.csv");
+
+    history.clear();
+
+    assert(history.trainLosses.empty());
+    assert(history.validationLosses.empty());
+
+    std::cout << "[PASS] TrainingHistory basics\n";
+}
+
+void testCheckpointSaveLoad() {
+    Tensor w1({ 2 });
+    w1[0] = 1.5f;
+    w1[1] = -2.0f;
+
+    Tensor w2({ 2 });
+    w2[0] = 3.25f;
+    w2[1] = 4.75f;
+
+    Parameter p1(w1, "layer.weight");
+    Parameter p2(w2, "layer.bias");
+
+    p1.grad[0] = 0.1f;
+    p1.grad[1] = 0.2f;
+    p2.grad[0] = -0.3f;
+    p2.grad[1] = -0.4f;
+
+    std::vector<Parameter*> params = { &p1, &p2 };
+
+    TrainingHistory history;
+    history.addTrainLoss(2.5f);
+    history.addTrainLoss(1.75f);
+    history.addValidationLoss(2.25f);
+
+    CheckpointMetadata metadata;
+    metadata.epoch = 3;
+    metadata.globalStep = 42;
+    metadata.runName = "checkpoint_test";
+
+    Checkpoint::save(
+        "checkpoint_test.bin",
+        params,
+        metadata,
+        history
+    );
+
+    p1.value[0] = 0.0f;
+    p1.value[1] = 0.0f;
+    p2.value[0] = 0.0f;
+    p2.value[1] = 0.0f;
+
+    p1.grad[0] = 0.0f;
+    p1.grad[1] = 0.0f;
+    p2.grad[0] = 0.0f;
+    p2.grad[1] = 0.0f;
+
+    history.clear();
+    metadata = CheckpointMetadata();
+
+    Checkpoint::load(
+        "checkpoint_test.bin",
+        params,
+        metadata,
+        history
+    );
+
+    assert(near(p1.value[0], 1.5f));
+    assert(near(p1.value[1], -2.0f));
+    assert(near(p2.value[0], 3.25f));
+    assert(near(p2.value[1], 4.75f));
+
+    assert(near(p1.grad[0], 0.1f));
+    assert(near(p1.grad[1], 0.2f));
+    assert(near(p2.grad[0], -0.3f));
+    assert(near(p2.grad[1], -0.4f));
+
+    assert(metadata.epoch == 3);
+    assert(metadata.globalStep == 42);
+    assert(metadata.runName == "checkpoint_test");
+
+    assert(history.trainLosses.size() == 2);
+    assert(history.validationLosses.size() == 1);
+
+    assert(near(history.trainLosses[0], 2.5f));
+    assert(near(history.trainLosses[1], 1.75f));
+    assert(near(history.validationLosses[0], 2.25f));
+
+    std::cout << "[PASS] Checkpoint save/load\n";
+}
+
+class DummyTrainableModel : public TrainableModel {
+private:
+    Parameter logitsParam;
+
+public:
+    DummyTrainableModel()
+        : logitsParam(Tensor({ 1, 3 }, 0.0f), "dummy.logits") {
+    }
+
+    Tensor forward(const Tensor& inputs) override {
+        (void)inputs;
+        return logitsParam.value;
+    }
+
+    void backward(const Tensor& gradOutput) override {
+        logitsParam.grad = gradOutput;
+    }
+
+    std::vector<Parameter*> parameters() override {
+        return { &logitsParam };
+    }
+
+    const Parameter& getParam() const {
+        return logitsParam;
+    }
+};
+
+void testTrainerBasicTrainingLoop() {
+    DummyTrainableModel model;
+    CrossEntropyLoss loss;
+    SGDOptimizer optimizer(0.1f);
+
+    TrainingConfig config;
+    config.epochs = 3;
+    config.logEverySteps = 1;
+    config.checkpointEveryEpochs = 1;
+    config.checkpointDirectory = ".";
+    config.runName = "trainer_test";
+
+    Tensor inputs({ 1 }, 0.0f);
+
+    Tensor targets({ 1 });
+    targets[0] = 2.0f;
+
+    TrainingBatch batch;
+    batch.inputs = inputs;
+    batch.targets = targets;
+
+	std::cout << "==================================================\n";
+	std::cout << "||            Trainer Basic Training Loop       ||\n";
+	std::cout << "==================================================\n";
+
+    std::vector<TrainingBatch> trainBatches = { batch };
+
+    Trainer trainer(model, loss, optimizer, config);
+
+    trainer.train(trainBatches);
+
+    const TrainingHistory& history = trainer.getHistory();
+
+    assert(history.trainLosses.size() == 3);
+
+    assert(history.trainLosses[2] < history.trainLosses[0]);
+
+    const Parameter& p = model.getParam();
+
+    // Target class logit should move upward.
+    assert(p.value[2] > 0.0f);
+
+    // Non-target class logits should move downward.
+    assert(p.value[0] < 0.0f);
+    assert(p.value[1] < 0.0f);
+
+    std::cout << "[PASS] Trainer basic training loop\n";
+}
+
+int main() {
+    std::cout << "Transformer_Toy build OK\n" << std::endl;
+    coreTest();
+    layersTest();
+    dataTest();
+    configTest();
+    mhaTest();
+    testParameterBasics();
+	testOptimizerZeroGrad();
+	testSGDOptimizerBasicStep();
+	testSGDOptimizerWeightDecay();
+	testAdamOptimizerFirstStep();
+	testAdamOptimizerMultipleStepsConstantGrad();
+	testAdamOptimizerWeightDecay();
+	testAdamOptimizerZeroGradInherited();
+	testCrossEntropyLossPerfectConfidence();
+	testCrossEntropyLossUniformLogits();
+	testCrossEntropyLossBatchAverage();
+	testTrainingHistory();
+	testCheckpointSaveLoad();
+	testTrainerBasicTrainingLoop();
+
+    return 0;
 
 }

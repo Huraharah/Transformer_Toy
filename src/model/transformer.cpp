@@ -173,3 +173,21 @@ std::string Transformer::generate(
 
     return tokenizer.decode(tokenIds);
 }
+
+std::string Transformer::generate(
+    const std::string& prompt,
+    const CharTokenizer& tokenizer,
+    const GenerationConfig& config,
+    Random& rng
+) {
+    config.validate();
+
+    return generate(
+        prompt,
+        tokenizer,
+        config.maxNewTokens,
+        config.temperature,
+        config.topK,
+        rng
+    );
+}

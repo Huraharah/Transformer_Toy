@@ -22,6 +22,7 @@
     <ClInclude Include="include\core\layer.h" />
     <ClInclude Include="include\core\layer_utils.h" />
     <ClInclude Include="include\core\math_utils.h" />
+    <ClInclude Include="include\core\parameter.h" />
     <ClInclude Include="include\core\random.h" />
     <ClInclude Include="include\core\tensor.h" />
     <ClInclude Include="include\data\dataset.h" />
@@ -35,6 +36,15 @@
     <ClInclude Include="include\layers\transformer_block.h" />
     <ClInclude Include="include\model\transformer.h" />
     <ClInclude Include="include\tests\test_utils.h" />
+    <ClInclude Include="include\training\adam_optimizer.h" />
+    <ClInclude Include="include\training\checkpoint.h" />
+    <ClInclude Include="include\training\cross_entropy_loss.h" />
+    <ClInclude Include="include\training\loss.h" />
+    <ClInclude Include="include\training\optimizer.h" />
+    <ClInclude Include="include\training\sgd_optimizer.h" />
+    <ClInclude Include="include\training\trainer.h" />
+    <ClInclude Include="include\training\training_config.h" />
+    <ClInclude Include="include\training\training_history.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -55,9 +65,24 @@
     <ClCompile Include="src\layers\transformer_block.cpp" />
     <ClCompile Include="src\model\transformer.cpp" />
     <ClCompile Include="src\tests\test_utils.cpp" />
+    <ClCompile Include="src\training\checkpoint.cpp" />
     <ClCompile Include="test_main.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CudaCompile Include="src\training\adam_optimizer.cu">
+      <FileType>Document</FileType>
+    </CudaCompile>
+    <CudaCompile Include="src\training\cross_entorpy_loss.cu">
+      <FileType>Document</FileType>
+    </CudaCompile>
+    <CudaCompile Include="src\training\sgd_optimizer.cu">
+      <FileType>Document</FileType>
+    </CudaCompile>
+    <CudaCompile Include="src\training\trainer.cu">
+      <FileType>Document</FileType>
+    </CudaCompile>
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
@@ -95,6 +120,7 @@
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 13.2.props" />
   </ImportGroup>
   <ImportGroup Label="Shared">
   </ImportGroup>
@@ -170,5 +196,6 @@
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 13.2.targets" />
   </ImportGroup>
 </Project>

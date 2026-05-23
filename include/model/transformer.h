@@ -53,5 +53,7 @@ public:
         Random& rng
     ) const;
 
+    std::string generate(const std::string& prompt, const CharTokenizer& tokenizer, const GenerationConfig& config, Random& rng);
+
     Tensor forward(const Tensor& tokenIds) const;
 };
