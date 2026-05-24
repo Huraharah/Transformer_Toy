@@ -19,12 +19,14 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\core\cuda_utils.h" />
     <ClInclude Include="include\core\layer.h" />
     <ClInclude Include="include\core\layer_utils.h" />
     <ClInclude Include="include\core\math_utils.h" />
     <ClInclude Include="include\core\parameter.h" />
     <ClInclude Include="include\core\random.h" />
     <ClInclude Include="include\core\tensor.h" />
+    <ClInclude Include="include\core\tensor_ops.h" />
     <ClInclude Include="include\data\dataset.h" />
     <ClInclude Include="include\data\tokenizer.h" />
     <ClInclude Include="include\layers\attention.h" />
@@ -50,11 +52,15 @@
     <ClCompile Include="main.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="src\core\cuda_utils.cpp" />
     <ClCompile Include="src\core\layer.cpp" />
     <ClCompile Include="src\core\layer_utils.cpp" />
     <ClCompile Include="src\core\math_utils.cpp" />
     <ClCompile Include="src\core\random.cpp" />
     <ClCompile Include="src\core\tensor.cpp" />
+    <CudaCompile Include="src\core\tensor_ops.cu">
+      <FileType>Document</FileType>
+    </CudaCompile>
     <ClCompile Include="src\data\dataset.cpp" />
     <ClCompile Include="src\data\tokenizer.cpp" />
     <ClCompile Include="src\layers\attention.cpp" />
@@ -74,7 +80,7 @@
     <CudaCompile Include="src\training\adam_optimizer.cu">
       <FileType>Document</FileType>
     </CudaCompile>
-    <CudaCompile Include="src\training\cross_entorpy_loss.cu">
+    <CudaCompile Include="src\training\cross_entropy_loss.cu">
       <FileType>Document</FileType>
     </CudaCompile>
     <CudaCompile Include="src\training\sgd_optimizer.cu">
@@ -178,6 +184,9 @@
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <CudaCompile>
+      <CodeGeneration>compute_89,sm_89</CodeGeneration>
+    </CudaCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>

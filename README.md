@@ -75,9 +75,6 @@ Implemented::
 Status: In progress
 
 Planned:
-- Device-aware Tensor
-- CUDA utility/error wrapper
-- CPU/GPU copy and fill tests
 - GPU SGD
 - GPU Adam
 - GPU CrossEntropyLoss
@@ -85,6 +82,11 @@ Planned:
 - GPU Transformer component pass
 - Trainer device config
 - CPU vs GPU parity tests
+
+Completed:
+- Refactor Tensor to be device-aware
+- CUDA utility functions and error checking
+- CPU/GPU copy and fill tests
 
 ## Milestone 4 — Architectural Experiments
 

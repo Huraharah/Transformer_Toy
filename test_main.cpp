@@ -19,6 +19,7 @@
 #include "training/training_history.h"
 #include "training/checkpoint.h"
 #include "training/trainer.h"
+#include "core/tensor_ops.h"
 
 #include <iostream>
 #include <vector>
@@ -1271,7 +1272,110 @@ void testTrainerBasicTrainingLoop() {
     assert(p.value[0] < 0.0f);
     assert(p.value[1] < 0.0f);
 
-    std::cout << "[PASS] Trainer basic training loop\n";
+    std::cout << "[PASS] Trainer basic training loop\n\n";
+}
+
+void testTensorToCUDAAndBack() {
+
+	std::cout << "==================================================\n"; 
+	std::cout << "||            CUDA Acceleration Tests           ||\n";
+	std::cout << "==================================================\n\n";
+
+    Tensor t({ 3 });
+    t[0] = 1.0f;
+    t[1] = 2.0f;
+    t[2] = 3.0f;
+
+    t.toCUDA();
+
+    assert(t.hasDeviceData());
+    assert(t.device() == Device::CUDA);
+
+    t.toCPU();
+
+    assert(near(t[0], 1.0f));
+    assert(near(t[1], 2.0f));
+    assert(near(t[2], 3.0f));
+
+    std::cout << "[PASS] Tensor CUDA transfer\n";
+}
+
+void testTensorCudaCopyConstructor() {
+    Tensor a({ 2 });
+    a[0] = 4.0f;
+    a[1] = 5.0f;
+
+    a.toCUDA();
+
+    Tensor b = a;
+    b.toCPU();
+
+    assert(near(b[0], 4.0f));
+    assert(near(b[1], 5.0f));
+    assert(b.hasDeviceData());
+
+    std::cout << "[PASS] Tensor CUDA copy constructor\n";
+}
+
+void testTensorFillCUDA() {
+    Tensor t({ 5 }, 0.0f);
+
+    tensorFillCUDA(t, 3.5f);
+
+    t.toCPU();
+
+    for (size_t i = 0; i < t.size(); ++i) {
+        assert(near(t[i], 3.5f));
+    }
+
+    std::cout << "[PASS] tensorFillCUDA\n";
+}
+
+void testTensorScaleCUDA() {
+    Tensor t({ 4 });
+
+    t[0] = 1.0f;
+    t[1] = 2.0f;
+    t[2] = -3.0f;
+    t[3] = 0.5f;
+
+    tensorScaleCUDA(t, 2.0f);
+
+    t.toCPU();
+
+    assert(near(t[0], 2.0f));
+    assert(near(t[1], 4.0f));
+    assert(near(t[2], -6.0f));
+    assert(near(t[3], 1.0f));
+
+    std::cout << "[PASS] tensorScaleCUDA\n";
+}
+
+void testTensorAddCUDA() {
+    Tensor a({ 4 });
+    Tensor b({ 4 });
+    Tensor out({ 4 });
+
+    a[0] = 1.0f;
+    a[1] = 2.0f;
+    a[2] = 3.0f;
+    a[3] = 4.0f;
+
+    b[0] = 10.0f;
+    b[1] = 20.0f;
+    b[2] = 30.0f;
+    b[3] = 40.0f;
+
+    tensorAddCUDA(a, b, out);
+
+    out.toCPU();
+
+    assert(near(out[0], 11.0f));
+    assert(near(out[1], 22.0f));
+    assert(near(out[2], 33.0f));
+    assert(near(out[3], 44.0f));
+
+    std::cout << "[PASS] tensorAddCUDA\n";
 }
 
 int main() {
@@ -1295,6 +1399,16 @@ int main() {
 	testTrainingHistory();
 	testCheckpointSaveLoad();
 	testTrainerBasicTrainingLoop();
+	testTensorToCUDAAndBack();
+	testTensorCudaCopyConstructor();
+    try {
+        testTensorFillCUDA();
+        testTensorScaleCUDA();
+        testTensorAddCUDA();
+    }
+    catch (const std::exception& e) {
+        std::cerr << "\n[CUDA TEST FAILURE]\n" << e.what() << "\n";
+    }
 
     return 0;
 
