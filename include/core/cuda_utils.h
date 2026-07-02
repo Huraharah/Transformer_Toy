@@ -1,4 +1,5 @@
 #pragma once
+#include "core/tensor.h"
 
 #include <cuda_runtime.h>
 
@@ -8,6 +9,9 @@ void checkCuda(
     const char* file,
     int line
 );
+
+bool isCudaAvailable();
+Device resolveDevice(Device requestedDevice);
 
 void cudaSync();
 

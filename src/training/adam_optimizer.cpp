@@ -1,4 +1,5 @@
 #include "training/adam_optimizer.h"
+#include "kernels/adam_kernel.cuh"
 
 #include <cmath>
 #include <stdexcept>
@@ -55,6 +56,29 @@ void AdamOptimizer::step(std::vector<Parameter*>& parameters) {
 
         Tensor& mt = m[param];
         Tensor& vt = v[param];
+
+        if (param->value.device() == Device::CUDA) {
+            param->value.toCUDA();
+            param->grad.toCUDA();
+            mt.toCUDA();
+            vt.toCUDA();
+
+            launchAdamUpdateKernel(
+                param->value.deviceData(),
+                param->grad.deviceData(),
+                mt.deviceData(),
+                vt.deviceData(),
+                param->value.size(),
+                learningRate,
+                beta1,
+                beta2,
+                epsilon,
+                weightDecay,
+                timestep
+            );
+
+            continue;
+        }
 
         float beta1Correction = 1.0f - std::pow(beta1, timestep);
         float beta2Correction = 1.0f - std::pow(beta2, timestep);

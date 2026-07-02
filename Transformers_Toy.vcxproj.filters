@@ -99,6 +99,8 @@
     <ClInclude Include="include\core\tensor_ops.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="include\kernels\sgd_kernel.cuh" />
+    <ClInclude Include="include\kernels\adam_kernel.cuh" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\core\layer.cpp">
@@ -160,12 +162,14 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <CudaCompile Include="src\training\adam_optimizer.cu" />
-    <CudaCompile Include="src\training\cross_entropy_loss.cu" />
-    <CudaCompile Include="src\training\sgd_optimizer.cu" />
-    <CudaCompile Include="src\training\trainer.cu" />
+    <CudaCompile Include="src\training\adam_optimizer.cpp" />
+    <CudaCompile Include="src\training\cross_entropy_loss.cpp" />
+    <CudaCompile Include="src\training\sgd_optimizer.cpp" />
+    <CudaCompile Include="src\training\trainer.cpp" />
     <CudaCompile Include="src\core\tensor_ops.cu">
       <Filter>Source Files</Filter>
     </CudaCompile>
+    <CudaCompile Include="src\kernels\sgd_kernel.cu" />
+    <CudaCompile Include="src\kernels\adam_kernel.cu" />
   </ItemGroup>
 </Project>

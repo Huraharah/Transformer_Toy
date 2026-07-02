@@ -2,6 +2,7 @@
 
 #include "core/tensor.h"
 #include "core/parameter.h"
+#include "core/cuda_utils.h"
 #include "training/loss.h"
 #include "training/optimizer.h"
 #include "training/training_config.h"
@@ -30,6 +31,8 @@ private:
     Loss& lossFunction;
     Optimizer& optimizer;
     TrainingHistory history;
+
+    Device activeDevice = resolveDevice(config.device);
 
     int globalStep = 0;
 

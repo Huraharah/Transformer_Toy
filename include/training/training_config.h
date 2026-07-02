@@ -1,6 +1,8 @@
 #pragma once
+#include "core/tensor.h"
 
 #include <string>
+
 
 struct TrainingConfig {
     int epochs = 1;
@@ -13,6 +15,8 @@ struct TrainingConfig {
 
     bool useValidation = false;
     bool shuffle = true;
+
+    Device device = Device::AUTO;
 
     std::string checkpointDirectory = "checkpoints";
     std::string runName = "default_run";

@@ -1375,7 +1375,145 @@ void testTensorAddCUDA() {
     assert(near(out[2], 33.0f));
     assert(near(out[3], 44.0f));
 
-    std::cout << "[PASS] tensorAddCUDA\n";
+    std::cout << "[PASS] tensorAddCUDA\n\n";
+}
+
+void testSGDOptimizerCUDAParity() {
+
+	std::cout << "==================================================\n";
+	std::cout << "||        CUDA Acceleration Parity Tests        ||\n";
+	std::cout << "==================================================\n\n";
+
+    Tensor cpuW({ 3 });
+    cpuW[0] = 1.0f;
+    cpuW[1] = 2.0f;
+    cpuW[2] = -3.0f;
+
+    Tensor gpuW = cpuW;
+
+    Parameter cpuParam(cpuW, "cpu.w");
+    Parameter gpuParam(gpuW, "gpu.w");
+
+    cpuParam.grad[0] = 0.25f;
+    cpuParam.grad[1] = 0.50f;
+    cpuParam.grad[2] = -1.00f;
+
+    gpuParam.grad[0] = 0.25f;
+    gpuParam.grad[1] = 0.50f;
+    gpuParam.grad[2] = -1.00f;
+
+    gpuParam.value.toCUDA();
+    gpuParam.grad.toCUDA();
+
+    std::vector<Parameter*> cpuParams = { &cpuParam };
+    std::vector<Parameter*> gpuParams = { &gpuParam };
+
+    SGDOptimizer cpuOptimizer(0.1f, 0.01f);
+    SGDOptimizer gpuOptimizer(0.1f, 0.01f);
+
+    cpuOptimizer.step(cpuParams);
+    gpuOptimizer.step(gpuParams);
+
+    gpuParam.value.toCPU();
+
+    assert(near(cpuParam.value[0], gpuParam.value[0]));
+    assert(near(cpuParam.value[1], gpuParam.value[1]));
+    assert(near(cpuParam.value[2], gpuParam.value[2]));
+
+    std::cout << "[PASS] SGD CUDA parity\n";
+}
+
+void testAdamOptimizerCUDAParity() {
+    Tensor cpuW({ 3 });
+    cpuW[0] = 1.0f;
+    cpuW[1] = 2.0f;
+    cpuW[2] = -3.0f;
+
+    Tensor gpuW = cpuW;
+
+    Parameter cpuParam(cpuW, "cpu.adam.w");
+    Parameter gpuParam(gpuW, "gpu.adam.w");
+
+    std::vector<Parameter*> cpuParams = { &cpuParam };
+    std::vector<Parameter*> gpuParams = { &gpuParam };
+
+    cpuParam.grad[0] = 0.25f;
+    cpuParam.grad[1] = 0.50f;
+    cpuParam.grad[2] = -1.00f;
+
+    gpuParam.grad[0] = 0.25f;
+    gpuParam.grad[1] = 0.50f;
+    gpuParam.grad[2] = -1.00f;
+
+    gpuParam.value.toCUDA();
+    gpuParam.grad.toCUDA();
+
+    AdamOptimizer cpuOptimizer(
+        0.001f,
+        0.9f,
+        0.999f,
+        1e-8f,
+        0.01f
+    );
+
+    AdamOptimizer gpuOptimizer(
+        0.001f,
+        0.9f,
+        0.999f,
+        1e-8f,
+        0.01f
+    );
+
+    cpuOptimizer.step(cpuParams);
+    gpuOptimizer.step(gpuParams);
+
+    gpuParam.value.toCPU();
+
+    assert(near(cpuParam.value[0], gpuParam.value[0], 1e-5f));
+    assert(near(cpuParam.value[1], gpuParam.value[1], 1e-5f));
+    assert(near(cpuParam.value[2], gpuParam.value[2], 1e-5f));
+
+    std::cout << "[PASS] Adam CUDA parity single step\n";
+}
+
+void testAdamOptimizerCUDAParityMultipleSteps() {
+    Tensor cpuW({ 2 });
+    cpuW[0] = 1.0f;
+    cpuW[1] = -2.0f;
+
+    Tensor gpuW = cpuW;
+
+    Parameter cpuParam(cpuW, "cpu.adam.multi.w");
+    Parameter gpuParam(gpuW, "gpu.adam.multi.w");
+
+    std::vector<Parameter*> cpuParams = { &cpuParam };
+    std::vector<Parameter*> gpuParams = { &gpuParam };
+
+    gpuParam.value.toCUDA();
+    gpuParam.grad.toCUDA();
+
+    AdamOptimizer cpuOptimizer(0.001f, 0.9f, 0.999f, 1e-8f, 0.01f);
+    AdamOptimizer gpuOptimizer(0.001f, 0.9f, 0.999f, 1e-8f, 0.01f);
+
+    for (int step = 0; step < 5; ++step) {
+        cpuParam.grad[0] = 0.25f + 0.01f * step;
+        cpuParam.grad[1] = -0.50f + 0.02f * step;
+
+        gpuParam.grad.toCPU();
+        gpuParam.grad[0] = cpuParam.grad[0];
+        gpuParam.grad[1] = cpuParam.grad[1];
+        gpuParam.grad.toCUDA();
+
+        cpuOptimizer.step(cpuParams);
+        gpuOptimizer.step(gpuParams);
+    }
+
+    gpuParam.value.toCPU();
+
+    assert(near(cpuParam.value[0], gpuParam.value[0], 1e-5f));
+    assert(near(cpuParam.value[1], gpuParam.value[1], 1e-5f));
+
+    std::cout << "[PASS] Adam CUDA parity multiple steps\n";
 }
 
 int main() {
@@ -1409,6 +1547,9 @@ int main() {
     catch (const std::exception& e) {
         std::cerr << "\n[CUDA TEST FAILURE]\n" << e.what() << "\n";
     }
+	testSGDOptimizerCUDAParity();
+    testAdamOptimizerCUDAParity();
+	testAdamOptimizerCUDAParityMultipleSteps();
 
     return 0;
 

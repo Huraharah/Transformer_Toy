@@ -75,8 +75,6 @@ Implemented::
 Status: In progress
 
 Planned:
-- GPU SGD
-- GPU Adam
 - GPU CrossEntropyLoss
 - GPU Dense/Linear
 - GPU Transformer component pass
@@ -87,6 +85,8 @@ Completed:
 - Refactor Tensor to be device-aware
 - CUDA utility functions and error checking
 - CPU/GPU copy and fill tests
+- GPU SGD
+- GPU Adam
 
 ## Milestone 4 — Architectural Experiments
 

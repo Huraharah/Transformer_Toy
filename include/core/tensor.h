@@ -7,7 +7,8 @@
 
 enum class Device {
     CPU,
-    CUDA
+    CUDA,
+    AUTO
 };
 
 class Tensor {

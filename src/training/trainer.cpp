@@ -39,11 +39,33 @@ void Trainer::train(
 
     std::vector<Parameter*> params = model.parameters();
 
+    Device activeDevice = resolveDevice(config.device);
+
+    for (Parameter* p : params) {
+        if (activeDevice == Device::CUDA) {
+            p->value.toCUDA();
+            p->grad.toCUDA();
+        }
+        else {
+            p->value.toCPU();
+            p->grad.toCPU();
+        }
+    }
+
     for (int epoch = 1; epoch <= config.epochs; ++epoch) {
         float epochLossSum = 0.0f;
 
         for (size_t batchIndex = 0; batchIndex < trainBatches.size(); ++batchIndex) {
-            const TrainingBatch& batch = trainBatches[batchIndex];
+            TrainingBatch batch = trainBatches[batchIndex];
+
+            if (activeDevice == Device::CUDA) {
+                batch.inputs.toCUDA();
+                batch.targets.toCUDA();
+            }
+            else {
+                batch.inputs.toCPU();
+                batch.targets.toCPU();
+            }
 
             Tensor predictions = model.forward(batch.inputs);
 
@@ -100,7 +122,21 @@ void Trainer::train(
                 std::to_string(epoch) +
                 ".bin";
 
+            if (activeDevice == Device::CUDA) {
+                for (Parameter* p : params) {
+                    p->value.toCPU();
+                    p->grad.toCPU();
+                }
+            }
+
             Checkpoint::save(path, params, metadata, history);
+
+            if (activeDevice == Device::CUDA) {
+                for (Parameter* p : params) {
+                    p->value.toCUDA();
+                    p->grad.toCUDA();
+                }
+            }
         }
     }
 }

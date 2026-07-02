@@ -19,6 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\kernels\adam_kernel.cuh" />
     <ClInclude Include="include\core\cuda_utils.h" />
     <ClInclude Include="include\core\layer.h" />
     <ClInclude Include="include\core\layer_utils.h" />
@@ -29,6 +30,7 @@
     <ClInclude Include="include\core\tensor_ops.h" />
     <ClInclude Include="include\data\dataset.h" />
     <ClInclude Include="include\data\tokenizer.h" />
+    <ClInclude Include="include\kernels\sgd_kernel.cuh" />
     <ClInclude Include="include\layers\attention.h" />
     <ClInclude Include="include\layers\config.h" />
     <ClInclude Include="include\layers\embedding.h" />
@@ -58,6 +60,7 @@
     <ClCompile Include="src\core\math_utils.cpp" />
     <ClCompile Include="src\core\random.cpp" />
     <ClCompile Include="src\core\tensor.cpp" />
+    <CudaCompile Include="src\kernels\adam_kernel.cu" />
     <CudaCompile Include="src\core\tensor_ops.cu">
       <FileType>Document</FileType>
     </CudaCompile>
@@ -77,16 +80,17 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <CudaCompile Include="src\training\adam_optimizer.cu">
+    <CudaCompile Include="src\kernels\sgd_kernel.cu" />
+    <CudaCompile Include="src\training\adam_optimizer.cpp">
       <FileType>Document</FileType>
     </CudaCompile>
-    <CudaCompile Include="src\training\cross_entropy_loss.cu">
+    <CudaCompile Include="src\training\cross_entropy_loss.cpp">
       <FileType>Document</FileType>
     </CudaCompile>
-    <CudaCompile Include="src\training\sgd_optimizer.cu">
+    <CudaCompile Include="src\training\sgd_optimizer.cpp">
       <FileType>Document</FileType>
     </CudaCompile>
-    <CudaCompile Include="src\training\trainer.cu">
+    <CudaCompile Include="src\training\trainer.cpp">
       <FileType>Document</FileType>
     </CudaCompile>
   </ItemGroup>
