@@ -16,4 +16,6 @@ public:
     FFN(size_t embedDim, size_t hiddenDim, Random& rng);
 
     Tensor forward(const Tensor& input) const;
+
+    std::vector<Parameter*> parameters();
 };

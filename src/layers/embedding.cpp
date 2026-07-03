@@ -6,12 +6,12 @@
 Embedding::Embedding(size_t vocabSize, size_t embeddingDim, Random& rng)
     : vocabSize_(vocabSize),
     embeddingDim_(embeddingDim),
-    table_({ vocabSize, embeddingDim }) {
+    table_(Tensor({ vocabSize, embeddingDim }), "embedding.table") {
 
     float limit = std::sqrt(6.0f / static_cast<float>(vocabSize + embeddingDim));
 
     for (size_t i = 0; i < table_.size(); ++i) {
-        table_[i] = rng.uniform(-limit, limit);
+        table_.value[i] = rng.uniform(-limit, limit);
     }
 }
 
@@ -34,7 +34,7 @@ Tensor Embedding::forward(const Tensor& tokenIds) const {
             }
 
             for (size_t e = 0; e < embeddingDim_; ++e) {
-                output.at({ b, t, e }) = table_.at({ static_cast<size_t>(tokenId), e });
+                output.at({ b, t, e }) = table_.value.at({ static_cast<size_t>(tokenId), e });
             }
         }
     }
@@ -43,5 +43,9 @@ Tensor Embedding::forward(const Tensor& tokenIds) const {
 }
 
 const Tensor& Embedding::table() const {
-    return table_;
+    return table_.value;
+}
+
+std::vector<Parameter*> Embedding::parameters() {
+    return { &table_ };
 }

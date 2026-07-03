@@ -1,5 +1,6 @@
 #include "layers/attention.h"
 #include "core/math_utils.h"
+#include "core/parameter.h"
 
 #include <cmath>
 #include <vector>
@@ -83,6 +84,21 @@ Tensor SelfAttention::forward(const Tensor& input) const {
     return LayerUtils::unflatten2DTo3D(projectedFlatOutput, batchSize, sequenceLength);
 }
 
+std::vector<Parameter*> SelfAttention::parameters() {
+    std::vector<Parameter*> params;
+
+    auto append = [&params](std::vector<Parameter*> more) {
+        params.insert(params.end(), more.begin(), more.end());
+        };
+
+    append(queryProj_.parameters());
+    append(keyProj_.parameters());
+    append(valueProj_.parameters());
+    append(outputProj_.parameters());
+
+    return params;
+}
+
 MultiHeadAttention::MultiHeadAttention(const AttentionConfig& config, Random& rng)
     : config_(config),
     embedDim_(config.embedDim),
@@ -157,4 +173,19 @@ Tensor MultiHeadAttention::forward(const Tensor& input) const {
     Tensor projectedFlatOutput = outputProj_.forward(flatAttentionOutput);
 
     return LayerUtils::unflatten2DTo3D(projectedFlatOutput, batchSize, sequenceLength);
+}
+
+std::vector<Parameter*> MultiHeadAttention::parameters() {
+    std::vector<Parameter*> params;
+
+    auto append = [&params](std::vector<Parameter*> more) {
+        params.insert(params.end(), more.begin(), more.end());
+        };
+
+    append(queryProj_.parameters());
+    append(keyProj_.parameters());
+    append(valueProj_.parameters());
+    append(outputProj_.parameters());
+
+    return params;
 }

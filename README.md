@@ -75,7 +75,6 @@ Implemented::
 Status: In progress
 
 Planned:
-- GPU CrossEntropyLoss
 - GPU Dense/Linear
 - GPU Transformer component pass
 - Trainer device config
@@ -87,6 +86,7 @@ Completed:
 - CPU/GPU copy and fill tests
 - GPU SGD
 - GPU Adam
+- GPU CrossEntropyLoss
 
 ## Milestone 4 — Architectural Experiments
 

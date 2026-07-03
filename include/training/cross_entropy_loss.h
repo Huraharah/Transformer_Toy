@@ -1,6 +1,7 @@
 #pragma once
 
 #include "training/loss.h"
+#include "kernels/loss_kernels.cuh"
 
 class CrossEntropyLoss : public Loss {
 private:

@@ -6,6 +6,7 @@
 #include "layers/attention.h"
 #include "layers/ffn.h"
 #include "layers/config.h"
+#include "core/parameter.h"
 
 
 class TransformerBlock {
@@ -26,4 +27,5 @@ public:
     TransformerBlock(const TransformerBlockConfig& config, Random& rng);
 
     Tensor forward(const Tensor& input) const;
+    std::vector<Parameter*> parameters();
 };

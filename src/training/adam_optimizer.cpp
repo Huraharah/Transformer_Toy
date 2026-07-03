@@ -1,5 +1,5 @@
 #include "training/adam_optimizer.h"
-#include "kernels/adam_kernel.cuh"
+#include "kernels/optimizer_kernels.cuh"
 
 #include <cmath>
 #include <stdexcept>

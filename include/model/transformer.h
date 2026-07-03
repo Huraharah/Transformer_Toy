@@ -11,8 +11,9 @@
 #include "data/tokenizer.h"
 #include "core/layer_utils.h"
 #include "layers/config.h"
+#include "training/trainer.h"
 
-class Transformer {
+class Transformer : public TrainableModel {
 private:
     size_t vocabSize_;
     size_t maxSequenceLength_;
@@ -51,9 +52,21 @@ public:
         float temperature,
         size_t topK,
         Random& rng
-    ) const;
+    );
 
-    std::string generate(const std::string& prompt, const CharTokenizer& tokenizer, const GenerationConfig& config, Random& rng);
+    std::string generate(
+        const std::string& prompt,
+        const CharTokenizer& tokenizer,
+        const GenerationConfig& config,
+        Random& rng
+        );
 
-    Tensor forward(const Tensor& tokenIds) const;
+    Tensor forward(const Tensor& tokenIds) override;
+    std::vector<Parameter*> parameters() override;
+
+    void backward(const Tensor& gradOutput) override {
+        throw std::runtime_error(
+            "Transformer::backward not implemented yet."
+        );
+    }
 };

@@ -1,7 +1,7 @@
-#include "kernels/adam_kernel.cuh"
+#include "kernels/optimizer_kernels.cuh"
 #include "core/cuda_utils.h"
 
-namespace {
+namespace kernels{
 
 	__global__ void adamUpdateKernel(
 		float* values,
@@ -29,6 +29,27 @@ namespace {
 			values[idx] -= learningRate * mHat / (sqrtf(vHat) + epsilon);
 		}
 	}
+
+
+	__global__ void sgdUpdateKernel(
+		float* values,
+		const float* grads,
+		size_t size,
+		float learningRate,
+		float weightDecay
+	) {
+		size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+		if (idx < size) {
+			float grad = grads[idx];
+
+			if (weightDecay != 0.0f) {
+				grad += weightDecay * values[idx];
+			}
+
+			values[idx] -= learningRate * grad;
+		}
+	}
 }
 
 void launchAdamUpdateKernel(
@@ -47,11 +68,8 @@ void launchAdamUpdateKernel(
 	if (size == 0) {
 		return;
 	}
-	constexpr int THREADS_PER_BLOCK = 256;
-	int blocks = static_cast<int>(
-		(size + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK
-		);
-	adamUpdateKernel<<<blocks, THREADS_PER_BLOCK>>>(
+	int blocks = getBlockCount(size, THREADS_PER_BLOCK);
+	kernels::adamUpdateKernel<<<blocks, THREADS_PER_BLOCK>>>(
 		values,
 		grads,
 		m,
@@ -64,6 +82,33 @@ void launchAdamUpdateKernel(
 		weightDecay,
 		timestep
 		);
+	CUDA_CHECK(cudaGetLastError());
+	cudaSync();
+}
+
+void launchSGDUpdateKernel(
+	float* values,
+	const float* grads,
+	size_t size,
+	float learningRate,
+	float weightDecay
+) {
+	if (size == 0) {
+		return;
+	}
+
+	int blocks = static_cast<int>(
+		(size + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK
+		);
+
+	kernels::sgdUpdateKernel<<<blocks, THREADS_PER_BLOCK>>>(
+		values,
+		grads,
+		size,
+		learningRate,
+		weightDecay
+		);
+
 	CUDA_CHECK(cudaGetLastError());
 	cudaSync();
 }

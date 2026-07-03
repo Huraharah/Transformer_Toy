@@ -99,8 +99,16 @@
     <ClInclude Include="include\core\tensor_ops.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\kernels\sgd_kernel.cuh" />
-    <ClInclude Include="include\kernels\adam_kernel.cuh" />
+    <ClInclude Include="include\kernels\optimizer_kernels.cuh" />
+    <ClInclude Include="include\kernels\loss_kernels.cuh" />
+    <ClInclude Include="include\kernels\kernel_config.cuh" />
+    <ClInclude Include="include\kernels\activation_kernels.cuh" />
+    <ClInclude Include="include\kernels\linear_kernels.cuh" />
+    <ClInclude Include="include\kernels\reduction_kernels.cuh" />
+    <ClInclude Include="include\kernels\tensor_ops_kernels.cuh" />
+    <ClInclude Include="include\tests\SmokeTests.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\core\layer.cpp">
@@ -160,6 +168,9 @@
     <ClCompile Include="src\core\cuda_utils.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\tests\SmokeTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="src\training\adam_optimizer.cpp" />
@@ -169,7 +180,11 @@
     <CudaCompile Include="src\core\tensor_ops.cu">
       <Filter>Source Files</Filter>
     </CudaCompile>
-    <CudaCompile Include="src\kernels\sgd_kernel.cu" />
-    <CudaCompile Include="src\kernels\adam_kernel.cu" />
+    <CudaCompile Include="src\kernels\optimizer_kernels.cu" />
+    <CudaCompile Include="src\kernels\loss_kernels.cu" />
+    <CudaCompile Include="src\kernels\linear_kernels.cu" />
+    <CudaCompile Include="src\kernels\reduction_kernels.cu" />
+    <CudaCompile Include="src\kernels\tensor_ops_kernels.cu" />
+    <CudaCompile Include="src\kernels\activation_kernels.cu" />
   </ItemGroup>
 </Project>

@@ -6,8 +6,8 @@
 LayerNorm::LayerNorm(size_t featureDim, float epsilon)
     : featureDim_(featureDim),
     epsilon_(epsilon),
-    gamma_({ featureDim }, 1.0f),
-    beta_({ featureDim }, 0.0f) {
+    gamma_(Tensor({ featureDim }, 1.0f), "layernorm.gamma"),
+    beta_(Tensor({ featureDim }, 0.0f), "layernorm.beta") {
 }
 
 Tensor LayerNorm::forward(const Tensor& input) const {
@@ -59,8 +59,8 @@ Tensor LayerNorm::forward(const Tensor& input) const {
                     (input.at({ b, t, f }) - mean) * invStdDev;
 
                 output.at({ b, t, f }) =
-                    normalized * gamma_.at({ f }) +
-                    beta_.at({ f });
+                    normalized * gamma_.value.at({ f }) +
+                    beta_.value.at({ f });
             }
         }
     }
@@ -68,10 +68,6 @@ Tensor LayerNorm::forward(const Tensor& input) const {
     return output;
 }
 
-const Tensor& LayerNorm::gamma() const {
-    return gamma_;
-}
-
-const Tensor& LayerNorm::beta() const {
-    return beta_;
+std::vector<Parameter*> LayerNorm::parameters() {
+    return { &gamma_, &beta_ };
 }

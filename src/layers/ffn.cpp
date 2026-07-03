@@ -1,5 +1,6 @@
 #include "layers/ffn.h"
 #include "core/math_utils.h"
+#include "core/parameter.h"
 
 #include <stdexcept>
 
@@ -52,4 +53,16 @@ Tensor FFN::forward(const Tensor& input) const {
     }
 
     return output;
+}
+
+std::vector<Parameter*> FFN::parameters() {
+    std::vector<Parameter*> params;
+
+    auto p1 = linear1_.parameters();
+    auto p2 = linear2_.parameters();
+
+    params.insert(params.end(), p1.begin(), p1.end());
+    params.insert(params.end(), p2.begin(), p2.end());
+
+    return params;
 }

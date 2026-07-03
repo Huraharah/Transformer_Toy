@@ -1,5 +1,7 @@
 #include "model/transformer.h"
 #include "core/math_utils.h"
+#include "core/layer_utils.h"
+#include "core/parameter.h"
 
 #include <stdexcept>
 #include <algorithm>
@@ -49,7 +51,7 @@ Transformer::Transformer(
     ) {
 }
 
-Tensor Transformer::forward(const Tensor& tokenIds) const {
+Tensor Transformer::forward(const Tensor& tokenIds) {
     if (tokenIds.rank() != 2) {
         throw std::invalid_argument("Transformer::forward expects tokenIds shape [batch, sequence].");
     }
@@ -94,7 +96,7 @@ std::string Transformer::generate(
     float temperature,
     size_t topK,
     Random& rng
-) const {
+) {
     if (temperature <= 0.0f) {
         throw std::invalid_argument("Temperature must be > 0.");
     }
@@ -190,4 +192,24 @@ std::string Transformer::generate(
         config.topK,
         rng
     );
+}
+
+std::vector<Parameter*> Transformer::parameters() {
+    std::vector<Parameter*> params;
+
+    auto append = [&params](std::vector<Parameter*> more) {
+        params.insert(params.end(), more.begin(), more.end());
+        };
+
+    append(tokenEmbedding_.parameters());
+    append(positionEmbedding_.parameters());
+
+    for (TransformerBlock& block : blocks_) {
+        append(block.parameters());
+    }
+
+    append(finalNorm_.parameters());
+    append(outputHead_.parameters());
+
+    return params;
 }

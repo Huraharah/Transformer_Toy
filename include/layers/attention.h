@@ -33,6 +33,7 @@ public:
     SelfAttention(size_t embedDim, Random& rng);
 
     Tensor forward(const Tensor& input) const;
+	std::vector<Parameter*> parameters();   
 };
 
 class MultiHeadAttention {
@@ -52,4 +53,5 @@ public:
     explicit MultiHeadAttention(const AttentionConfig& config, Random& rng);
 
     Tensor forward(const Tensor& input) const;
+    std::vector<Parameter*> parameters();
 };

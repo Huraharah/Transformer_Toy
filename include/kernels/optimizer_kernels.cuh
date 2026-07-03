@@ -1,6 +1,8 @@
 #pragma once
+#include "kernels/kernel_config.cuh"
 
 #include <cstddef>
+
 
 
 void launchAdamUpdateKernel(
@@ -16,3 +18,12 @@ void launchAdamUpdateKernel(
     float weightDecay,
     int timestep
 );
+
+void launchSGDUpdateKernel(
+    float* values,
+    const float* grads,
+    size_t size,
+    float learningRate,
+    float weightDecay
+);
+

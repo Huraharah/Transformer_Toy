@@ -20,11 +20,14 @@
 #include "training/checkpoint.h"
 #include "training/trainer.h"
 #include "core/tensor_ops.h"
+#include "kernels/linear_kernels.cuh"
+#include "tests/SmokeTests.h"
 
 #include <iostream>
 #include <vector>
 #include <cassert>
 #include <cmath>
+#include <stdarg.h>
 
 void coreTest() {
     Tensor t({ 2, 3 }, 1.0f);
@@ -417,7 +420,7 @@ void dataTest() {
     std::cout << "||                Dataset Test                  ||\n";
     std::cout << "==================================================\n";
 
-    TextDataset dataset("shakespeare.txt", 16);
+    TextDataset dataset("data/shakespeare.txt", 16);
 
     std::cout << "Raw text length: " << dataset.rawText().size() << "\n";
     std::cout << "Vocab size: " << dataset.vocabSize() << "\n";
@@ -1516,8 +1519,174 @@ void testAdamOptimizerCUDAParityMultipleSteps() {
     std::cout << "[PASS] Adam CUDA parity multiple steps\n";
 }
 
-int main() {
+void testCrossEntropyLossCUDAParity() {
+    Tensor cpuLogits({ 2, 4 });
+
+    cpuLogits[0] = 1.0f;
+    cpuLogits[1] = 2.0f;
+    cpuLogits[2] = 3.0f;
+    cpuLogits[3] = 4.0f;
+
+    cpuLogits[4] = 0.5f;
+    cpuLogits[5] = -1.0f;
+    cpuLogits[6] = 2.0f;
+    cpuLogits[7] = 0.0f;
+
+    Tensor cpuTargets({ 2 });
+    cpuTargets[0] = 3.0f;
+    cpuTargets[1] = 2.0f;
+
+    Tensor gpuLogits = cpuLogits;
+    Tensor gpuTargets = cpuTargets;
+
+    gpuLogits.toCUDA();
+    gpuTargets.toCUDA();
+
+    CrossEntropyLoss cpuLoss;
+    CrossEntropyLoss gpuLoss;
+
+    float cpuValue = cpuLoss.forward(cpuLogits, cpuTargets);
+    Tensor cpuGrad = cpuLoss.backward();
+
+    float gpuValue = gpuLoss.forward(gpuLogits, gpuTargets);
+    Tensor gpuGrad = gpuLoss.backward();
+    gpuGrad.toCPU();
+
+    assert(near(cpuValue, gpuValue, 1e-5f));
+
+    assert(cpuGrad.size() == gpuGrad.size());
+
+    for (size_t i = 0; i < cpuGrad.size(); ++i) {
+        assert(near(cpuGrad[i], gpuGrad[i], 1e-5f));
+    }
+
+    std::cout << "[PASS] CrossEntropyLoss CUDA parity\n";
+}
+
+void testCrossEntropyLossCUDAUniformParity() {
+    Tensor cpuLogits({ 3, 5 }, 0.0f);
+
+    Tensor cpuTargets({ 3 });
+    cpuTargets[0] = 0.0f;
+    cpuTargets[1] = 2.0f;
+    cpuTargets[2] = 4.0f;
+
+    Tensor gpuLogits = cpuLogits;
+    Tensor gpuTargets = cpuTargets;
+
+    gpuLogits.toCUDA();
+    gpuTargets.toCUDA();
+
+    CrossEntropyLoss cpuLoss;
+    CrossEntropyLoss gpuLoss;
+
+    float cpuValue = cpuLoss.forward(cpuLogits, cpuTargets);
+    Tensor cpuGrad = cpuLoss.backward();
+
+    float gpuValue = gpuLoss.forward(gpuLogits, gpuTargets);
+    Tensor gpuGrad = gpuLoss.backward();
+    gpuGrad.toCPU();
+
+    assert(near(cpuValue, gpuValue, 1e-5f));
+
+    for (size_t i = 0; i < cpuGrad.size(); ++i) {
+        assert(near(cpuGrad[i], gpuGrad[i], 1e-5f));
+    }
+
+    std::cout << "[PASS] CrossEntropyLoss CUDA uniform parity\n";
+}
+
+void testLinearForwardCUDAParity() {
+    Tensor input({ 2, 3 });
+    input[0] = 1.0f; input[1] = 2.0f; input[2] = 3.0f;
+    input[3] = 4.0f; input[4] = 5.0f; input[5] = 6.0f;
+
+    Tensor weights({ 2, 3 });
+
+    // output feature 0 weights
+    weights[0] = 0.1f;
+    weights[1] = 0.3f;
+    weights[2] = 0.5f;
+
+    // output feature 1 weights
+    weights[3] = 0.2f;
+    weights[4] = 0.4f;
+    weights[5] = 0.6f;
+
+    Tensor bias({ 2 });
+    bias[0] = 0.5f;
+    bias[1] = -0.5f;
+
+    Tensor output({ 2, 2 }, 0.0f);
+
+    input.toCUDA();
+    weights.toCUDA();
+    bias.toCUDA();
+    output.toCUDA();
+
+    launchLinearForward(
+        input.deviceData(),
+        weights.deviceData(),
+        bias.deviceData(),
+        output.deviceData(),
+        2, 3, 2
+    );
+
+    output.toCPU();
+
+    assert(near(output[0], 1.0f * 0.1f + 2.0f * 0.3f + 3.0f * 0.5f + 0.5f));
+    assert(near(output[1], 1.0f * 0.2f + 2.0f * 0.4f + 3.0f * 0.6f - 0.5f));
+    assert(near(output[2], 4.0f * 0.1f + 5.0f * 0.3f + 6.0f * 0.5f + 0.5f));
+    assert(near(output[3], 4.0f * 0.2f + 5.0f * 0.4f + 6.0f * 0.6f - 0.5f));
+
+    std::cout << "[PASS] Linear forward CUDA parity\n";
+}
+
+void testLinearClassForwardCUDAParity() {
+    Random rng(42);
+
+    Linear cpuLinear(3, 2, rng);
+    Linear gpuLinear = cpuLinear;
+
+    Tensor cpuInput({ 2, 3 });
+    cpuInput[0] = 1.0f;
+    cpuInput[1] = 2.0f;
+    cpuInput[2] = 3.0f;
+    cpuInput[3] = 4.0f;
+    cpuInput[4] = 5.0f;
+    cpuInput[5] = 6.0f;
+
+    Tensor gpuInput = cpuInput;
+    gpuInput.toCUDA();
+
+    Tensor cpuOutput = cpuLinear.forward(cpuInput);
+    Tensor gpuOutput = gpuLinear.forward(gpuInput);
+
+    gpuOutput.toCPU();
+
+    assert(cpuOutput.size() == gpuOutput.size());
+
+    for (size_t i = 0; i < cpuOutput.size(); ++i) {
+        assert(near(cpuOutput[i], gpuOutput[i], 1e-5f));
+    }
+
+    std::cout << "[PASS] Linear::forward CUDA parity\n";
+}
+
+int main(int argc, char** argv) {
     std::cout << "Transformer_Toy build OK\n" << std::endl;
+	std::cout << "validating arguments..." << std::endl;
+
+    bool runSmokeTest = false;
+
+    for (int i = 0; i < argc; ++i) {
+        if (std::string(argv[i]) == "--smoke") {
+            runSmokeTest = true;
+			std::cout << "Running smoke tests enabled." << std::endl;
+        }
+		// TODO: Add more command-line argument parsing as needed
+    }
+
     coreTest();
     layersTest();
     dataTest();
@@ -1550,6 +1719,17 @@ int main() {
 	testSGDOptimizerCUDAParity();
     testAdamOptimizerCUDAParity();
 	testAdamOptimizerCUDAParityMultipleSteps();
+	testCrossEntropyLossCUDAParity();
+	testCrossEntropyLossCUDAUniformParity();
+	testLinearForwardCUDAParity();
+	testLinearClassForwardCUDAParity();
+
+	if (runSmokeTest) {
+		std::cout << "\nRunning smoke tests..." << std::endl;
+		runSmokeTests();
+	}
+
+
 
     return 0;
 

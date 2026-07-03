@@ -1,6 +1,6 @@
 #include "training/sgd_optimizer.h"
 #include "core/cuda_utils.h"
-#include "kernels/sgd_kernel.cuh"
+#include "kernels/optimizer_kernels.cuh"
 
 #include <stdexcept>
 
@@ -16,8 +16,6 @@ SGDOptimizer::SGDOptimizer(float learningRate_, float weightDecay_)
         throw std::invalid_argument("SGDOptimizer weight decay must be >= 0.");
     }
 }
-
-static constexpr int THREADS_PER_BLOCK = 256;
 
 void SGDOptimizer::step(std::vector<Parameter*>& parameters) {
     for (Parameter* param : parameters) {

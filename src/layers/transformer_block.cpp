@@ -1,5 +1,6 @@
 #include "layers/transformer_block.h"
 #include "core/math_utils.h"
+#include "core/parameter.h"
 
 #include <stdexcept>
 
@@ -70,4 +71,26 @@ Tensor TransformerBlock::forward(const Tensor& input) const {
     Tensor residual2 = MathUtils::add(residual1, mixed);
 
     return residual2;
+}
+
+std::vector<Parameter*> TransformerBlock::parameters() {
+    std::vector<Parameter*> params;
+
+    auto append = [&params](std::vector<Parameter*> more) {
+        params.insert(params.end(), more.begin(), more.end());
+        };
+
+    if (singleAttention_) {
+        append(singleAttention_->parameters());
+    }
+
+    if (multiAttention_) {
+        append(multiAttention_->parameters());
+    }
+
+    append(norm1_.parameters());
+    append(ffn_.parameters());
+    append(norm2_.parameters());
+
+    return params;
 }
