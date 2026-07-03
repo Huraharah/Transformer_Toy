@@ -26,6 +26,6 @@ private:
 public:
     TransformerBlock(const TransformerBlockConfig& config, Random& rng);
 
-    Tensor forward(const Tensor& input) const;
+    Tensor forward(const Tensor& input);
     std::vector<Parameter*> parameters();
 };

@@ -1670,8 +1670,184 @@ void testLinearClassForwardCUDAParity() {
         assert(near(cpuOutput[i], gpuOutput[i], 1e-5f));
     }
 
-    std::cout << "[PASS] Linear::forward CUDA parity\n";
+    std::cout << "[PASS] Linear::forward CUDA parity\n\n";
 }
+
+void testLinearBackward() {
+	std::cout << "==================================================\n";
+	std::cout << "||          Backwards function Tests            ||\n";
+	std::cout << "==================================================\n\n";
+
+    Random rng(42);
+    Linear linear(2, 3, rng);
+
+    Tensor input({ 2, 2 });
+    input[0] = 1.0f; input[1] = 2.0f;
+    input[2] = 3.0f; input[3] = 4.0f;
+
+    Tensor output = linear.forward(input);
+    (void)output;
+
+    Tensor gradOutput({ 2, 3 });
+    gradOutput[0] = 0.1f; gradOutput[1] = 0.2f; gradOutput[2] = 0.3f;
+    gradOutput[3] = 0.4f; gradOutput[4] = 0.5f; gradOutput[5] = 0.6f;
+
+    Tensor gradInput = linear.backward(gradOutput);
+
+    std::vector<Parameter*> params = linear.parameters();
+    Parameter* weights = params[0];
+    Parameter* bias = params[1];
+
+    // bias grad = column sums of gradOutput
+    assert(near(bias->grad[0], 0.1f + 0.4f));
+    assert(near(bias->grad[1], 0.2f + 0.5f));
+    assert(near(bias->grad[2], 0.3f + 0.6f));
+
+    // weight grad[o, i] = sum_b gradOutput[b, o] * input[b, i]
+    assert(near(weights->grad.at({ 0, 0 }), 0.1f * 1.0f + 0.4f * 3.0f));
+    assert(near(weights->grad.at({ 0, 1 }), 0.1f * 2.0f + 0.4f * 4.0f));
+
+    assert(near(weights->grad.at({ 1, 0 }), 0.2f * 1.0f + 0.5f * 3.0f));
+    assert(near(weights->grad.at({ 1, 1 }), 0.2f * 2.0f + 0.5f * 4.0f));
+
+    assert(near(weights->grad.at({ 2, 0 }), 0.3f * 1.0f + 0.6f * 3.0f));
+    assert(near(weights->grad.at({ 2, 1 }), 0.3f * 2.0f + 0.6f * 4.0f));
+
+    // gradInput[b, i] = sum_o gradOutput[b, o] * weight[o, i]
+    const Tensor& w = linear.weights();
+
+    assert(near(
+        gradInput.at({ 0, 0 }),
+        0.1f * w.at({ 0, 0 }) + 0.2f * w.at({ 1, 0 }) + 0.3f * w.at({ 2, 0 })
+    ));
+
+    assert(near(
+        gradInput.at({ 0, 1 }),
+        0.1f * w.at({ 0, 1 }) + 0.2f * w.at({ 1, 1 }) + 0.3f * w.at({ 2, 1 })
+    ));
+
+    assert(near(
+        gradInput.at({ 1, 0 }),
+        0.4f * w.at({ 0, 0 }) + 0.5f * w.at({ 1, 0 }) + 0.6f * w.at({ 2, 0 })
+    ));
+
+    assert(near(
+        gradInput.at({ 1, 1 }),
+        0.4f * w.at({ 0, 1 }) + 0.5f * w.at({ 1, 1 }) + 0.6f * w.at({ 2, 1 })
+    ));
+
+    std::cout << "[PASS] Linear backward\n";
+}
+
+void testFFNBackward() {
+    Random rng(42);
+
+    FFN ffn(
+        4,      // embedDim
+        8,      // hiddenDim
+        rng
+    );
+
+    Tensor input({ 2, 3, 4 });
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        input[i] = static_cast<float>(i + 1) * 0.1f;
+    }
+
+    Tensor output = ffn.forward(input);
+
+    Tensor gradOutput(output.shape(), 1.0f);
+
+    Tensor gradInput = ffn.backward(gradOutput);
+
+    // Shape checks
+    assert(gradInput.shape() == input.shape());
+
+    // Parameter gradients exist
+    auto params = ffn.parameters();
+
+    assert(params.size() == 4);
+
+    for (Parameter* p : params) {
+        bool foundNonZero = false;
+
+        for (size_t i = 0; i < p->grad.size(); ++i) {
+            if (std::fabs(p->grad[i]) > 1e-7f) {
+                foundNonZero = true;
+                break;
+            }
+        }
+
+        assert(foundNonZero);
+    }
+
+    // Gradient isn't identically zero
+    bool gradInputNonZero = false;
+
+    for (size_t i = 0; i < gradInput.size(); ++i) {
+        if (std::fabs(gradInput[i]) > 1e-7f) {
+            gradInputNonZero = true;
+            break;
+        }
+    }
+
+    assert(gradInputNonZero);
+
+    FFN ffn1(4, 8, rng);
+
+    Tensor grad({ 2,3,4 }, 1.0f);
+
+    bool threw = false;
+
+    try {
+        ffn1.backward(grad);
+    }
+    catch (...) {
+        threw = true;
+    }
+
+    assert(threw);
+
+    std::cout << "[PASS] FFN backward\n";
+}
+
+void testLayerNormBackward() {
+    LayerNorm norm(4);
+
+    Tensor input({ 2, 3, 4 });
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        input[i] = static_cast<float>(i + 1) * 0.1f;
+    }
+
+    Tensor output = norm.forward(input);
+    Tensor gradOutput(output.shape(), 1.0f);
+
+    Tensor gradInput = norm.backward(gradOutput);
+
+    assert(gradInput.shape() == input.shape());
+
+    auto params = norm.parameters();
+    assert(params.size() == 2);
+
+    Parameter* gamma = params[0];
+    Parameter* beta = params[1];
+
+    assert(gamma->grad.size() == 4);
+    assert(beta->grad.size() == 4);
+
+    for (size_t i = 0; i < beta->grad.size(); ++i) {
+        assert(near(beta->grad[i], 6.0f));
+    }
+
+    std::cout << "[PASS] LayerNorm backward\n";
+}
+
+/*
+_______________________________________________________________________________________________________________________________________________________________
+Add more test functions as needed
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+*/
 
 int main(int argc, char** argv) {
     std::cout << "Transformer_Toy build OK\n" << std::endl;
@@ -1723,6 +1899,9 @@ int main(int argc, char** argv) {
 	testCrossEntropyLossCUDAUniformParity();
 	testLinearForwardCUDAParity();
 	testLinearClassForwardCUDAParity();
+    testLinearBackward();
+	testFFNBackward();
+	testLayerNormBackward();
 
 	if (runSmokeTest) {
 		std::cout << "\nRunning smoke tests..." << std::endl;

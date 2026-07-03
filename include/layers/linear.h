@@ -12,10 +12,14 @@ private:
     Parameter weights_; // [outFeatures, inFeatures]
     Parameter bias_;    // [outFeatures]
 
+	Tensor cachedInput_; // [batchSize, inFeatures]
+
 public:
     Linear(size_t inFeatures, size_t outFeatures, Random& rng);
 
-    Tensor forward(const Tensor& input) const;
+    Tensor forward(const Tensor& input);
+    Tensor backward(const Tensor& gradOutput);
+
 
     const Tensor& weights() const;
     const Tensor& bias() const;

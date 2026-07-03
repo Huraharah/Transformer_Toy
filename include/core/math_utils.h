@@ -20,4 +20,10 @@ namespace MathUtils {
 
 	float tokenAccuracy(const Tensor& logits, const Tensor& targets);
 
+	float perplexity(float crossEntropyLoss);
+
+	float tokenAccuracy(const Tensor& logits, const Tensor& targets);
+
+	float geluDerivative(float x);
+
 }

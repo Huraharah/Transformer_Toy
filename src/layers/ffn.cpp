@@ -11,7 +11,7 @@ FFN::FFN(size_t embedDim, size_t hiddenDim, Random& rng)
     linear2_(hiddenDim, embedDim, rng) {
 }
 
-Tensor FFN::forward(const Tensor& input) const {
+Tensor FFN::forward(const Tensor& input){
     if (input.rank() != 3) {
         throw std::invalid_argument("FFN::forward expects input shape [batch, sequence, embedDim].");
     }
@@ -24,6 +24,8 @@ Tensor FFN::forward(const Tensor& input) const {
         throw std::invalid_argument("FFN embed dimension mismatch.");
     }
 
+	cachedInputShape_ = { batchSize, sequenceLength, embedDim_ }; // Cache the input shape for backward pass
+
     Tensor flatInput({ batchSize * sequenceLength, embedDim_ }, 0.0f);
 
     for (size_t b = 0; b < batchSize; ++b) {
@@ -35,6 +37,8 @@ Tensor FFN::forward(const Tensor& input) const {
     }
 
     Tensor hidden = linear1_.forward(flatInput);
+
+	cachedHiddenPreActivation_ = hidden; // Cache for backward pass
 
     for (size_t i = 0; i < hidden.size(); ++i) {
         hidden[i] = MathUtils::gelu(hidden[i]);
@@ -53,6 +57,55 @@ Tensor FFN::forward(const Tensor& input) const {
     }
 
     return output;
+}
+
+Tensor FFN::backward(const Tensor& gradOutput) {
+	if (gradOutput.rank() != 3) {
+		throw std::invalid_argument("FFN::backward expects gradOutput shape [batch, sequence, embedDim].");
+	}
+	size_t batchSize = gradOutput.shape()[0];
+	size_t sequenceLength = gradOutput.shape()[1];
+	size_t outputEmbedDim = gradOutput.shape()[2];
+	if (outputEmbedDim != embedDim_) {
+		throw std::invalid_argument("FFN backward embed dimension mismatch.");
+	}
+	if (cachedInputShape_.empty()) {
+		throw std::runtime_error("FFN::backward called before forward.");
+	}
+	if (cachedInputShape_[0] != batchSize || cachedInputShape_[1] != sequenceLength) {
+		throw std::invalid_argument("FFN backward batch or sequence size mismatch.");
+	}
+
+	Tensor flatGradOutput({ batchSize * sequenceLength, embedDim_ }, 0.0f);
+	for (size_t b = 0; b < batchSize; ++b) {
+		for (size_t t = 0; t < sequenceLength; ++t) {
+			for (size_t f = 0; f < embedDim_; ++f) {
+				flatGradOutput.at({ b * sequenceLength + t, f }) = gradOutput.at({ b, t, f });
+			}
+		}
+	}
+
+	Tensor gradHidden = linear2_.backward(flatGradOutput);
+	for (size_t i = 0; i < gradHidden.size(); ++i) {
+		float x = cachedHiddenPreActivation_[i];
+		float geluGrad = MathUtils::geluDerivative(x);
+		gradHidden[i] *= geluGrad;
+	}
+
+	if (cachedHiddenPreActivation_.size() != gradHidden.size()) {
+		throw std::runtime_error("FFN backward cached activation size mismatch.");
+	}
+
+	Tensor gradInputFlat = linear1_.backward(gradHidden);
+	Tensor gradInput({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+	for (size_t b = 0; b < batchSize; ++b) {
+		for (size_t t = 0; t < sequenceLength; ++t) {
+			for (size_t f = 0; f < embedDim_; ++f) {
+				gradInput.at({ b, t, f }) = gradInputFlat.at({ b * sequenceLength + t, f });
+			}
+		}
+	}
+	return gradInput;
 }
 
 std::vector<Parameter*> FFN::parameters() {

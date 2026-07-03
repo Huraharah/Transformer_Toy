@@ -159,4 +159,18 @@ namespace MathUtils {
 
         return static_cast<float>(correct) / static_cast<float>(total);
     }
+
+    float MathUtils::geluDerivative(float x) {
+        constexpr float sqrt2OverPi = 0.7978845608028654f;
+        constexpr float coeff = 0.044715f;
+
+        float x3 = x * x * x;
+        float inner = sqrt2OverPi * (x + coeff * x3);
+        float tanhInner = std::tanh(inner);
+
+        float sech2 = 1.0f - tanhInner * tanhInner;
+        float innerDeriv = sqrt2OverPi * (1.0f + 3.0f * coeff * x * x);
+
+        return 0.5f * (1.0f + tanhInner) + 0.5f * x * sech2 * innerDeriv;
+    }
 }

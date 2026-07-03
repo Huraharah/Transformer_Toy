@@ -13,10 +13,15 @@ private:
     Parameter gamma_;   // scale
     Parameter beta_;    // shift
 
+    Tensor cachedInput_;
+    Tensor cachedMean_;
+    Tensor cachedInvStd_;
+
 public:
     LayerNorm(size_t featureDim, float epsilon = 1e-5f);
 
-    Tensor forward(const Tensor& input) const;
+    Tensor forward(const Tensor& input);
+	Tensor backward(const Tensor& gradOutput);
 
     std::vector<Parameter*> parameters();
 };

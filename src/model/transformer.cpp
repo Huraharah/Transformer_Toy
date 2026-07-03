@@ -77,7 +77,7 @@ Tensor Transformer::forward(const Tensor& tokenIds) {
 
     Tensor x = MathUtils::add(tokenEmbedded, positionEmbedded);
 
-    for (const TransformerBlock& block : blocks_) {
+    for (TransformerBlock& block : blocks_) {
         x = block.forward(x);
     }
 

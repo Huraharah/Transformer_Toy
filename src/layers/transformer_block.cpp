@@ -37,7 +37,7 @@ TransformerBlock::TransformerBlock(const TransformerBlockConfig& config, Random&
     }
 }
 
-Tensor TransformerBlock::forward(const Tensor& input) const {
+Tensor TransformerBlock::forward(const Tensor& input){
     if (input.rank() != 3) {
         throw std::invalid_argument(
             "TransformerBlock::forward expects input shape [batch, sequence, embedDim]."

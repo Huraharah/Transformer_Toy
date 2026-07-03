@@ -15,7 +15,7 @@ SelfAttention::SelfAttention(size_t embedDim, Random& rng)
     outputProj_(embedDim, embedDim, rng) {
 }
 
-Tensor SelfAttention::forward(const Tensor& input) const {
+Tensor SelfAttention::forward(const Tensor& input){
     if (input.rank() != 3) {
         throw std::invalid_argument("SelfAttention::forward expects input shape [batch, sequence, embedDim].");
     }
@@ -110,7 +110,7 @@ MultiHeadAttention::MultiHeadAttention(const AttentionConfig& config, Random& rn
     outputProj_(config.embedDim, config.embedDim, rng) {
 }
 
-Tensor MultiHeadAttention::forward(const Tensor& input) const {
+Tensor MultiHeadAttention::forward(const Tensor& input){
     if (input.rank() != 3) {
         throw std::invalid_argument("MultiHeadAttention::forward expects input shape [batch, sequence, embedDim].");
     }

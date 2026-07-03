@@ -17,7 +17,7 @@ Linear::Linear(size_t inFeatures, size_t outFeatures, Random& rng)
     }
 }
 
-Tensor Linear::forward(const Tensor& input) const {
+Tensor Linear::forward(const Tensor& input) {
     if (input.rank() != 2) {
         throw std::invalid_argument("Linear::forward expects input shape [batchSize, inFeatures].");
     }
@@ -30,6 +30,7 @@ Tensor Linear::forward(const Tensor& input) const {
     }
 
     Tensor output({ batchSize, outFeatures_ }, 0.0f);
+	cachedInput_ = input; // Cache the input for backward pass
 
     if (input.device() == Device::CUDA) {
         Tensor& mutableInput = const_cast<Tensor&>(input);
@@ -70,6 +71,48 @@ Tensor Linear::forward(const Tensor& input) const {
 
         return output;
     }
+}
+
+Tensor Linear::backward(const Tensor& gradOutput)
+{
+    if (cachedInput_.empty()) {
+        throw std::runtime_error("Linear::backward called before forward.");
+    }
+
+    if (gradOutput.rank() != 2) {
+        throw std::invalid_argument("Linear::backward expects gradOutput shape [batchSize, outFeatures].");
+    }
+
+    size_t batchSize = gradOutput.shape()[0];
+    size_t gradOutFeatures = gradOutput.shape()[1];
+
+    if (gradOutFeatures != outFeatures_) {
+        throw std::invalid_argument("Linear::backward gradOutput feature size mismatch.");
+    }
+
+    if (cachedInput_.shape()[0] != batchSize) {
+        throw std::invalid_argument("Linear::backward batch size mismatch.");
+    }
+
+    Tensor gradInput({ batchSize, inFeatures_ }, 0.0f);
+
+    weights_.grad.fill(0.0f);
+    bias_.grad.fill(0.0f);
+
+    for (size_t b = 0; b < batchSize; ++b) {
+        for (size_t o = 0; o < outFeatures_; ++o) {
+            float go = gradOutput.at({ b, o });
+
+            bias_.grad[o] += go;
+
+            for (size_t i = 0; i < inFeatures_; ++i) {
+                weights_.grad.at({ o, i }) += go * cachedInput_.at({ b, i });
+                gradInput.at({ b, i }) += go * weights_.value.at({ o, i });
+            }
+        }
+    }
+
+    return gradInput;
 }
 
 const Tensor& Linear::weights() const {
