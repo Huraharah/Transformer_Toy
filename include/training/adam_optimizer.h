@@ -28,4 +28,5 @@ public:
     );
 
     void step(std::vector<Parameter*>& parameters) override;
+    float getLearningRate() const;
 };

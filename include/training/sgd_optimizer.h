@@ -11,4 +11,5 @@ public:
     explicit SGDOptimizer(float learningRate_, float weightDecay_ = 0.0f);
 
     void step(std::vector<Parameter*>& parameters) override;
+    float getLearningRate() const;
 };

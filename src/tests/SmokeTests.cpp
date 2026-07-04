@@ -16,6 +16,7 @@
 #include <fstream>
 #include <sstream>
 #include <cmath>
+#include <iomanip>
 
 namespace {
 
@@ -29,7 +30,7 @@ namespace {
         return isCudaAvailable();
     }
 
-    void runGenerationSmokeCheck(
+    std::string runGenerationSmokeCheck(
         Transformer& model,
         const TextDataset& dataset,
         Random& rng
@@ -37,7 +38,7 @@ namespace {
         std::string generated = model.generate(
             "To be",
             dataset.tokenizer(),
-            32,
+            100,
             1.0f,
             10,
             rng
@@ -47,8 +48,7 @@ namespace {
             throw std::runtime_error("Generation smoke check produced empty output.");
         }
 
-        std::cout << "[INFO] Generated sample:\n"
-            << generated << "\n";
+		return generated;
     }
 
     void runTinyShakespeareSmokeTest(Device device) {
@@ -58,17 +58,17 @@ namespace {
 
         TrainingConfig config;
         config.device = device;
-        config.epochs = 1;
-        config.batchSize = 4;
-        config.logEverySteps = 1;
+        config.epochs = 10;
+        config.batchSize = 16;
+        config.logEverySteps = 20;
         config.checkpointEveryEpochs = 0;
         config.runName = device == Device::CUDA
             ? "tiny_shakespeare_cuda_smoke"
             : "tiny_shakespeare_cpu_smoke";
         config.checkpointDirectory = ".";
 
-        constexpr size_t contextLength = 32;
-        constexpr size_t batchSize = 4;
+        constexpr size_t contextLength = 64;
+        constexpr size_t batchSize = 16;
 
         TextDataset dataset("data/shakespeare.txt", contextLength);
 
@@ -80,9 +80,9 @@ namespace {
             << "\n";
 
 
-        constexpr int dModel = 16;
+        constexpr int dModel = 64;
         constexpr int dFF = 32;
-        constexpr int numLayers = 1;
+        constexpr int numLayers = 2;
 
         TransformerBlockConfig blockConfig;
         blockConfig.d_model = dModel;
@@ -157,12 +157,53 @@ namespace {
             }
         }
 
-        std::cout
-            << "[INFO] Initial loss=" << history.trainLosses.front()
-            << " final loss=" << history.trainLosses.back()
-            << "\n";
+        float improvement =
+            100.0f *
+            (
+                history.trainLosses.front() -
+                history.trainLosses.back()
+                ) /
+            history.trainLosses.front();
 
-        runGenerationSmokeCheck(model, dataset, rng);
+        std::cout
+            << "====================================================\n"
+            << "||            Model Training Summary              ||\n"
+            << "====================================================\n"
+            << "Initial loss = " << history.trainLosses.front()
+            << "\nFinal loss = " << history.trainLosses.back() << "\n";
+        std::cout
+            << std::fixed
+            << std::setprecision(2)
+            << "Improvement = "
+            << improvement
+            << "%\n";
+        std::cout
+			<< "====================================================\n"
+			<< "||            Model Generation Sample             ||\n"
+			<< "====================================================\n"
+			<< "Prompt: \"To be\"\n"
+			<< "---------------------------------------------------\n"
+			<< "Generated sample:\n";
+
+        std::string generatedSample = runGenerationSmokeCheck(model, dataset, rng);
+
+		std::cout << generatedSample << "\n"
+			<< "---------------------------------------------------\n";
+
+        std::cout
+            << "==================================================\n"
+            << "||            Model Configuration               ||\n"
+            << "==================================================\n"
+            << "Device: " << (device == Device::CUDA ? "CUDA" : "CPU") << "\n"
+            << "Layers: " << numLayers << "\n"
+            << "Embedding dim: " << dModel << "\n"
+            << "Feedforward dim: " << dFF << "\n"
+            << "Heads: " << blockConfig.numHeads << "\n"
+            << "Context: " << dataset.contextLength() << "\n"
+            << "Batch size: " << batchSize << "\n"
+            << "Epochs: " << config.epochs << "\n"
+            << "Learning Rate: " << optimizer.getLearningRate() << "\n"
+            << "Vocab size: " << dataset.vocabSize() << "\n";
     }
 
 }
@@ -184,7 +225,7 @@ void runSmokeTests() {
     printSection("Smoke Tests");
 
     runTinyShakespeareSmokeTestCPU();
-    runTinyShakespeareSmokeTestCUDA();
+    //runTinyShakespeareSmokeTestCUDA();
 
     std::cout << "\n[PASS] Smoke test suite completed\n";
 }

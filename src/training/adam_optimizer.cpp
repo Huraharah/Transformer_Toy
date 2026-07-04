@@ -100,3 +100,7 @@ void AdamOptimizer::step(std::vector<Parameter*>& parameters) {
         }
     }
 }
+
+float AdamOptimizer::getLearningRate() const {
+	return learningRate;
+}

@@ -1,5 +1,6 @@
 #include "training/trainer.h"
 #include "training/checkpoint.h"
+#include "core/layer_utils.h"
 
 #include <iostream>
 #include <stdexcept>
@@ -69,8 +70,44 @@ void Trainer::train(
 
             Tensor predictions = model.forward(batch.inputs);
 
-            float lossValue = lossFunction.forward(predictions, batch.targets);
-            Tensor gradLoss = lossFunction.backward();
+            Tensor flatPredictions;
+            Tensor flatTargets;
+
+            if (predictions.rank() == 3) {
+                flatPredictions = LayerUtils::flatten3DTo2D(predictions);
+
+                flatTargets = Tensor({ batch.targets.size() });
+
+                for (size_t i = 0; i < batch.targets.size(); ++i) {
+                    flatTargets[i] = batch.targets[i];
+                }
+            }
+            else if (predictions.rank() == 2) {
+                flatPredictions = predictions;
+                flatTargets = batch.targets;
+            }
+            else {
+                throw std::invalid_argument(
+                    "Trainer::train expects model predictions with rank 2 or 3."
+                );
+            }
+
+            float lossValue = lossFunction.forward(flatPredictions, flatTargets);
+
+            Tensor flatGradLoss = lossFunction.backward();
+
+            Tensor gradLoss;
+
+            if (predictions.rank() == 3) {
+                gradLoss = LayerUtils::unflatten2DTo3D(
+                    flatGradLoss,
+                    predictions.shape()[0],
+                    predictions.shape()[1]
+                );
+            }
+            else {
+                gradLoss = flatGradLoss;
+            }
 
             model.backward(gradLoss);
 

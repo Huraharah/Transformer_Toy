@@ -20,6 +20,9 @@ private:
     LayerNorm norm2_;
     FFN ffn_;
 
+	Tensor cachedInput_;
+    Tensor cachedAttentionResidual_;
+
     std::unique_ptr<SelfAttention> singleAttention_;
     std::unique_ptr<MultiHeadAttention> multiAttention_;
 
@@ -27,5 +30,7 @@ public:
     TransformerBlock(const TransformerBlockConfig& config, Random& rng);
 
     Tensor forward(const Tensor& input);
+	Tensor backward(const Tensor& gradOutput);
+
     std::vector<Parameter*> parameters();
 };

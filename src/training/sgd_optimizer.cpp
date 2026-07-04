@@ -57,3 +57,7 @@ void SGDOptimizer::step(std::vector<Parameter*>& parameters) {
         }
     }
 }
+
+float SGDOptimizer::getLearningRate() const {
+	return learningRate;
+}   

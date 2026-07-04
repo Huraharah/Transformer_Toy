@@ -38,6 +38,12 @@ Tensor SelfAttention::forward(const Tensor& input){
     Tensor K = LayerUtils::unflatten2DTo3D(kFlat, batchSize, sequenceLength);
     Tensor V = LayerUtils::unflatten2DTo3D(vFlat, batchSize, sequenceLength);
 
+    cachedInput_ = input;
+    cachedQ_ = Q;
+    cachedK_ = K;
+    cachedV_ = V;
+    cachedAttentionWeights_ = Tensor({ batchSize, sequenceLength, sequenceLength }, 0.0f);
+
     Tensor attentionOutput({ batchSize, sequenceLength, embedDim_ }, 0.0f);
 
     float scale = 1.0f / std::sqrt(static_cast<float>(embedDim_));
@@ -57,6 +63,10 @@ Tensor SelfAttention::forward(const Tensor& input){
             }
 
             std::vector<float> weights = MathUtils::softmax(scores);
+
+            for (size_t j = 0; j < sequenceLength; ++j) {
+                cachedAttentionWeights_.at({ b, t, j }) = weights[j];
+            }
 
             /*std::cout << "Token " << t << " weights: ";
 
@@ -82,6 +92,93 @@ Tensor SelfAttention::forward(const Tensor& input){
     Tensor projectedFlatOutput = outputProj_.forward(flatAttentionOutput);
 
     return LayerUtils::unflatten2DTo3D(projectedFlatOutput, batchSize, sequenceLength);
+}
+
+Tensor SelfAttention::backward(const Tensor& gradOutput) {
+    if (cachedInput_.empty()) {
+        throw std::runtime_error("SelfAttention::backward called before forward.");
+    }
+
+    size_t batchSize = gradOutput.shape()[0];
+    size_t sequenceLength = gradOutput.shape()[1];
+
+    Tensor flatGradOutput = LayerUtils::flatten3DTo2D(gradOutput);
+    Tensor gradAttentionFlat = outputProj_.backward(flatGradOutput);
+    Tensor gradAttention = LayerUtils::unflatten2DTo3D(
+        gradAttentionFlat,
+        batchSize,
+        sequenceLength
+    );
+
+    Tensor gradQ({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+    Tensor gradK({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+    Tensor gradV({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+
+    float scale = 1.0f / std::sqrt(static_cast<float>(embedDim_));
+
+    for (size_t b = 0; b < batchSize; ++b) {
+        for (size_t t = 0; t < sequenceLength; ++t) {
+            std::vector<float> gradWeights(sequenceLength, 0.0f);
+
+            for (size_t j = 0; j <= t; ++j) {
+                float dot = 0.0f;
+
+                for (size_t f = 0; f < embedDim_; ++f) {
+                    dot += gradAttention.at({ b, t, f }) *
+                        cachedV_.at({ b, j, f });
+
+                    gradV.at({ b, j, f }) +=
+                        cachedAttentionWeights_.at({ b, t, j }) *
+                        gradAttention.at({ b, t, f });
+                }
+
+                gradWeights[j] = dot;
+            }
+
+            float weightedSum = 0.0f;
+
+            for (size_t j = 0; j <= t; ++j) {
+                weightedSum +=
+                    gradWeights[j] *
+                    cachedAttentionWeights_.at({ b, t, j });
+            }
+
+            for (size_t j = 0; j <= t; ++j) {
+                float gradScore =
+                    cachedAttentionWeights_.at({ b, t, j }) *
+                    (gradWeights[j] - weightedSum);
+
+                gradScore *= scale;
+
+                for (size_t f = 0; f < embedDim_; ++f) {
+                    gradQ.at({ b, t, f }) +=
+                        gradScore * cachedK_.at({ b, j, f });
+
+                    gradK.at({ b, j, f }) +=
+                        gradScore * cachedQ_.at({ b, t, f });
+                }
+            }
+        }
+    }
+
+    Tensor gradQFlat = LayerUtils::flatten3DTo2D(gradQ);
+    Tensor gradKFlat = LayerUtils::flatten3DTo2D(gradK);
+    Tensor gradVFlat = LayerUtils::flatten3DTo2D(gradV);
+
+    Tensor gradInputQ = queryProj_.backward(gradQFlat);
+    Tensor gradInputK = keyProj_.backward(gradKFlat);
+    Tensor gradInputV = valueProj_.backward(gradVFlat);
+
+    Tensor gradInputFlat = MathUtils::add(
+        MathUtils::add(gradInputQ, gradInputK),
+        gradInputV
+    );
+
+    return LayerUtils::unflatten2DTo3D(
+        gradInputFlat,
+        batchSize,
+        sequenceLength
+    );
 }
 
 std::vector<Parameter*> SelfAttention::parameters() {
@@ -133,6 +230,12 @@ Tensor MultiHeadAttention::forward(const Tensor& input){
     Tensor K = LayerUtils::unflatten2DTo3D(kFlat, batchSize, sequenceLength);
     Tensor V = LayerUtils::unflatten2DTo3D(vFlat, batchSize, sequenceLength);
 
+    cachedInput_ = input;
+    cachedQ_ = Q;
+    cachedK_ = K;
+    cachedV_ = V;
+    cachedAttentionWeights_ = Tensor({ batchSize, numHeads_, sequenceLength, sequenceLength }, 0.0f);
+
     Tensor attentionOutput({ batchSize, sequenceLength, embedDim_ }, 0.0f);
 
     float scale = 1.0f / std::sqrt(static_cast<float>(headDim_));
@@ -155,6 +258,10 @@ Tensor MultiHeadAttention::forward(const Tensor& input){
 
                 std::vector<float> weights = MathUtils::softmax(scores);
 
+                for (size_t j = 0; j < sequenceLength; ++j) {
+                    cachedAttentionWeights_.at({ b, h, t, j }) = weights[j];
+                }
+
                 for (size_t f = 0; f < headDim_; ++f) {
                     size_t idx = h * headDim_ + f;
                     float sum = 0.0f;
@@ -173,6 +280,104 @@ Tensor MultiHeadAttention::forward(const Tensor& input){
     Tensor projectedFlatOutput = outputProj_.forward(flatAttentionOutput);
 
     return LayerUtils::unflatten2DTo3D(projectedFlatOutput, batchSize, sequenceLength);
+}
+
+Tensor MultiHeadAttention::backward(const Tensor& gradOutput) {
+    if (cachedInput_.empty()) {
+        throw std::runtime_error("MultiHeadAttention::backward called before forward.");
+    }
+
+    if (gradOutput.rank() != 3) {
+        throw std::invalid_argument("MultiHeadAttention::backward expects [batch, sequence, embedDim].");
+    }
+
+    size_t batchSize = gradOutput.shape()[0];
+    size_t sequenceLength = gradOutput.shape()[1];
+
+    Tensor flatGradOutput = LayerUtils::flatten3DTo2D(gradOutput);
+    Tensor gradConcatFlat = outputProj_.backward(flatGradOutput);
+
+    Tensor gradConcat = LayerUtils::unflatten2DTo3D(
+        gradConcatFlat,
+        batchSize,
+        sequenceLength
+    );
+
+    Tensor gradQ({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+    Tensor gradK({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+    Tensor gradV({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+
+    float scale = 1.0f / std::sqrt(static_cast<float>(headDim_));
+
+    for (size_t b = 0; b < batchSize; ++b) {
+        for (size_t h = 0; h < numHeads_; ++h) {
+            for (size_t t = 0; t < sequenceLength; ++t) {
+                std::vector<float> gradWeights(sequenceLength, 0.0f);
+
+                for (size_t j = 0; j <= t; ++j) {
+                    float dot = 0.0f;
+
+                    for (size_t f = 0; f < headDim_; ++f) {
+                        size_t globalF = h * headDim_ + f;
+
+                        dot += gradConcat.at({ b, t, globalF }) *
+                            cachedV_.at({ b, j, globalF });
+
+                        gradV.at({ b, j, globalF }) +=
+                            cachedAttentionWeights_.at({ b, h, t, j }) *
+                            gradConcat.at({ b, t, globalF });
+                    }
+
+                    gradWeights[j] = dot;
+                }
+
+                float weightedSum = 0.0f;
+
+                for (size_t j = 0; j <= t; ++j) {
+                    weightedSum +=
+                        gradWeights[j] *
+                        cachedAttentionWeights_.at({ b, h, t, j });
+                }
+
+                for (size_t j = 0; j <= t; ++j) {
+                    float gradScore =
+                        cachedAttentionWeights_.at({ b, h, t, j }) *
+                        (gradWeights[j] - weightedSum);
+
+                    gradScore *= scale;
+
+                    for (size_t f = 0; f < headDim_; ++f) {
+                        size_t globalF = h * headDim_ + f;
+
+                        gradQ.at({ b, t, globalF }) +=
+                            gradScore * cachedK_.at({ b, j, globalF });
+
+                        gradK.at({ b, j, globalF }) +=
+                            gradScore * cachedQ_.at({ b, t, globalF });
+                    }
+                }
+            }
+        }
+    }
+
+    Tensor gradQFlat = LayerUtils::flatten3DTo2D(gradQ);
+    Tensor gradKFlat = LayerUtils::flatten3DTo2D(gradK);
+    Tensor gradVFlat = LayerUtils::flatten3DTo2D(gradV);
+
+    Tensor gradInputQ = queryProj_.backward(gradQFlat);
+    Tensor gradInputK = keyProj_.backward(gradKFlat);
+    Tensor gradInputV = valueProj_.backward(gradVFlat);
+
+    Tensor gradInputFlat = MathUtils::add(
+        MathUtils::add(gradInputQ, gradInputK),
+        gradInputV
+    );
+
+    return LayerUtils::unflatten2DTo3D(
+        gradInputFlat,
+        batchSize,
+        sequenceLength
+    );
 }
 
 std::vector<Parameter*> MultiHeadAttention::parameters() {

@@ -1843,6 +1843,462 @@ void testLayerNormBackward() {
     std::cout << "[PASS] LayerNorm backward\n";
 }
 
+void testSelfAttentionBackward() {
+    Random rng(42);
+
+    constexpr size_t embedDim = 4;
+    constexpr size_t batchSize = 2;
+    constexpr size_t sequenceLength = 3;
+
+    SelfAttention attention(embedDim, rng);
+
+    Tensor input({ batchSize, sequenceLength, embedDim });
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        input[i] = static_cast<float>(i + 1) * 0.05f;
+    }
+
+    Tensor output = attention.forward(input);
+    Tensor gradOutput(output.shape(), 1.0f);
+
+    Tensor gradInput = attention.backward(gradOutput);
+
+    assert(gradInput.shape() == input.shape());
+
+    auto params = attention.parameters();
+    assert(!params.empty());
+
+    bool foundNonZeroParamGrad = false;
+
+    for (Parameter* p : params) {
+        for (size_t i = 0; i < p->grad.size(); ++i) {
+            if (std::fabs(p->grad[i]) > 1e-7f) {
+                foundNonZeroParamGrad = true;
+                break;
+            }
+        }
+
+        if (foundNonZeroParamGrad) {
+            break;
+        }
+    }
+
+    assert(foundNonZeroParamGrad);
+
+    bool foundNonZeroInputGrad = false;
+
+    for (size_t i = 0; i < gradInput.size(); ++i) {
+        if (std::fabs(gradInput[i]) > 1e-7f) {
+            foundNonZeroInputGrad = true;
+            break;
+        }
+    }
+
+    assert(foundNonZeroInputGrad);
+
+    std::cout << "[PASS] SelfAttention backward\n";
+}
+
+void testTransformerBlockSingleHeadBackward() {
+    Random rng(42);
+
+    TransformerBlockConfig config;
+    config.d_model = 4;
+    config.d_ff = 8;
+    config.pre_norm = true;
+    config.use_bias = true;
+    config.residual_dropout = 0.0f;
+    config.ffn_dropout = 0.0f;
+    config.attentionType = AttentionType::SingleHead;
+    config.numHeads = 1;
+
+    config.validate();
+
+    TransformerBlock block(config, rng);
+
+    Tensor input({ 2, 3, 4 });
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        input[i] = static_cast<float>(i + 1) * 0.05f;
+    }
+
+    Tensor output = block.forward(input);
+    Tensor gradOutput(output.shape(), 1.0f);
+
+    Tensor gradInput = block.backward(gradOutput);
+
+    assert(gradInput.shape() == input.shape());
+
+    auto params = block.parameters();
+    assert(!params.empty());
+
+    bool foundNonZeroParamGrad = false;
+
+    for (Parameter* p : params) {
+        for (size_t i = 0; i < p->grad.size(); ++i) {
+            if (std::fabs(p->grad[i]) > 1e-7f) {
+                foundNonZeroParamGrad = true;
+                break;
+            }
+        }
+
+        if (foundNonZeroParamGrad) {
+            break;
+        }
+    }
+
+    assert(foundNonZeroParamGrad);
+
+    std::cout << "[PASS] TransformerBlock single-head backward\n";
+}
+
+void testMultiHeadAttentionBackward() {
+    Random rng(42);
+
+    constexpr size_t embedDim = 8;
+    constexpr size_t numHeads = 2;
+    constexpr size_t batchSize = 2;
+    constexpr size_t sequenceLength = 3;
+	AttentionConfig config = { embedDim, numHeads, true, true, 0.0f };
+
+    MultiHeadAttention attention(config, rng);
+
+    Tensor input({ batchSize, sequenceLength, embedDim });
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        input[i] = static_cast<float>(i + 1) * 0.025f;
+    }
+
+    Tensor output = attention.forward(input);
+    Tensor gradOutput(output.shape(), 1.0f);
+
+    Tensor gradInput = attention.backward(gradOutput);
+
+    assert(gradInput.shape() == input.shape());
+
+    auto params = attention.parameters();
+    assert(!params.empty());
+
+    bool foundNonZeroParamGrad = false;
+
+    for (Parameter* p : params) {
+        for (size_t i = 0; i < p->grad.size(); ++i) {
+            if (std::fabs(p->grad[i]) > 1e-7f) {
+                foundNonZeroParamGrad = true;
+                break;
+            }
+        }
+
+        if (foundNonZeroParamGrad) {
+            break;
+        }
+    }
+
+    assert(foundNonZeroParamGrad);
+
+    bool foundNonZeroInputGrad = false;
+
+    for (size_t i = 0; i < gradInput.size(); ++i) {
+        if (std::fabs(gradInput[i]) > 1e-7f) {
+            foundNonZeroInputGrad = true;
+            break;
+        }
+    }
+
+    assert(foundNonZeroInputGrad);
+
+    std::cout << "[PASS] MultiHeadAttention backward\n";
+}
+
+
+void testTransformerBlockMultiHeadBackward() {
+    Random rng(42);
+
+    TransformerBlockConfig config;
+    config.d_model = 8;
+    config.d_ff = 16;
+    config.pre_norm = true;
+    config.use_bias = true;
+    config.residual_dropout = 0.0f;
+    config.ffn_dropout = 0.0f;
+    config.attentionType = AttentionType::MultiHead;
+    config.numHeads = 2;
+
+    config.validate();
+
+    TransformerBlock block(config, rng);
+
+    Tensor input({ 2, 3, 8 });
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        input[i] = static_cast<float>(i + 1) * 0.025f;
+    }
+
+    Tensor output = block.forward(input);
+    Tensor gradOutput(output.shape(), 1.0f);
+
+    Tensor gradInput = block.backward(gradOutput);
+
+    assert(gradInput.shape() == input.shape());
+
+    auto params = block.parameters();
+    assert(!params.empty());
+
+    bool foundNonZeroParamGrad = false;
+
+    for (Parameter* p : params) {
+        for (size_t i = 0; i < p->grad.size(); ++i) {
+            if (std::fabs(p->grad[i]) > 1e-7f) {
+                foundNonZeroParamGrad = true;
+                break;
+            }
+        }
+
+        if (foundNonZeroParamGrad) {
+            break;
+        }
+    }
+
+    assert(foundNonZeroParamGrad);
+
+    std::cout << "[PASS] TransformerBlock multi-head backward\n";
+}
+
+void testEmbeddingBackward() {
+    Random rng(42);
+
+    Embedding embedding(
+        5,  // vocabSize
+        3,  // embeddingDim
+        rng
+    );
+
+    Tensor tokenIds({ 2, 4 });
+
+    tokenIds[0] = 1.0f;
+    tokenIds[1] = 2.0f;
+    tokenIds[2] = 1.0f;
+    tokenIds[3] = 3.0f;
+
+    tokenIds[4] = 0.0f;
+    tokenIds[5] = 2.0f;
+    tokenIds[6] = 2.0f;
+    tokenIds[7] = 4.0f;
+
+    Tensor output = embedding.forward(tokenIds);
+
+    Tensor gradOutput(output.shape(), 1.0f);
+
+    Tensor gradInput = embedding.backward(gradOutput);
+
+    assert(gradInput.shape() == tokenIds.shape());
+
+    auto params = embedding.parameters();
+    assert(params.size() == 1);
+
+    Parameter* table = params[0];
+
+    assert(table->grad.shape()[0] == 5);
+    assert(table->grad.shape()[1] == 3);
+
+    // token 0 appears once
+    for (size_t e = 0; e < 3; ++e) {
+        assert(near(table->grad.at({ 0, e }), 1.0f));
+    }
+
+    // token 1 appears twice
+    for (size_t e = 0; e < 3; ++e) {
+        assert(near(table->grad.at({ 1, e }), 2.0f));
+    }
+
+    // token 2 appears three times
+    for (size_t e = 0; e < 3; ++e) {
+        assert(near(table->grad.at({ 2, e }), 3.0f));
+    }
+
+    // token 3 appears once
+    for (size_t e = 0; e < 3; ++e) {
+        assert(near(table->grad.at({ 3, e }), 1.0f));
+    }
+
+    // token 4 appears once
+    for (size_t e = 0; e < 3; ++e) {
+        assert(near(table->grad.at({ 4, e }), 1.0f));
+    }
+
+    std::cout << "[PASS] Embedding backward\n";
+}
+
+void testTransformerBackwardSingleHead() {
+    Random rng(42);
+
+    TransformerBlockConfig blockConfig;
+    blockConfig.d_model = 8;
+    blockConfig.d_ff = 16;
+    blockConfig.pre_norm = true;
+    blockConfig.use_bias = true;
+    blockConfig.residual_dropout = 0.0f;
+    blockConfig.ffn_dropout = 0.0f;
+    blockConfig.attentionType = AttentionType::SingleHead;
+    blockConfig.numHeads = 1;
+
+    TransformerModelConfig modelConfig;
+    modelConfig.vocab_size = 12;
+    modelConfig.max_seq_len = 5;
+    modelConfig.num_layers = 1;
+    modelConfig.block = blockConfig;
+    modelConfig.learned_positional_embeddings = true;
+    modelConfig.embedding_dropout = 0.0f;
+
+    modelConfig.validate();
+
+    Transformer model(modelConfig, rng);
+
+    Tensor inputs({ 2, 5 });
+    Tensor targets({ 2, 5 });
+
+    for (size_t i = 0; i < inputs.size(); ++i) {
+        inputs[i] = static_cast<float>(i % modelConfig.vocab_size);
+        targets[i] = static_cast<float>((i + 1) % modelConfig.vocab_size);
+    }
+
+    Tensor logits = model.forward(inputs);
+
+    // CrossEntropyLoss currently expects [batch, classes],
+    // so flatten [B, T, V] -> [B*T, V], targets [B,T] -> [B*T].
+    Tensor flatLogits =
+        LayerUtils::flatten3DTo2D(logits);
+
+    Tensor flatTargets({ targets.size() });
+
+    for (size_t i = 0; i < targets.size(); ++i) {
+        flatTargets[i] = targets[i];
+    }
+
+    CrossEntropyLoss loss;
+    float lossValue = loss.forward(flatLogits, flatTargets);
+
+    assert(std::isfinite(lossValue));
+
+    Tensor flatGrad = loss.backward();
+
+    Tensor gradLogits =
+        LayerUtils::unflatten2DTo3D(
+            flatGrad,
+            2,
+            5
+        );
+
+    model.backward(gradLogits);
+
+    auto params = model.parameters();
+    assert(!params.empty());
+
+    bool foundNonZeroGrad = false;
+
+    for (Parameter* p : params) {
+        for (size_t i = 0; i < p->grad.size(); ++i) {
+            if (std::fabs(p->grad[i]) > 1e-7f) {
+                foundNonZeroGrad = true;
+                break;
+            }
+        }
+
+        if (foundNonZeroGrad) {
+            break;
+        }
+    }
+
+    assert(foundNonZeroGrad);
+
+    std::cout << "[PASS] Transformer backward single-head\n";
+}
+
+void testTransformerBackwardMultiHead() {
+    Random rng(42);
+
+    TransformerBlockConfig blockConfig;
+    blockConfig.d_model = 8;
+    blockConfig.d_ff = 16;
+    blockConfig.pre_norm = true;
+    blockConfig.use_bias = true;
+    blockConfig.residual_dropout = 0.0f;
+    blockConfig.ffn_dropout = 0.0f;
+    blockConfig.attentionType = AttentionType::MultiHead;
+    blockConfig.numHeads = 4;
+
+    TransformerModelConfig modelConfig;
+    modelConfig.vocab_size = 12;
+    modelConfig.max_seq_len = 5;
+    modelConfig.num_layers = 1;
+    modelConfig.block = blockConfig;
+    modelConfig.learned_positional_embeddings = true;
+    modelConfig.embedding_dropout = 0.0f;
+
+    modelConfig.validate();
+
+    Transformer model(modelConfig, rng);
+
+    Tensor inputs({ 2, 5 });
+    Tensor targets({ 2, 5 });
+
+    for (size_t i = 0; i < inputs.size(); ++i) {
+        inputs[i] = static_cast<float>(i % modelConfig.vocab_size);
+        targets[i] = static_cast<float>((i + 1) % modelConfig.vocab_size);
+    }
+
+    Tensor logits = model.forward(inputs);
+
+    // CrossEntropyLoss currently expects [batch, classes],
+    // so flatten [B, T, V] -> [B*T, V], targets [B,T] -> [B*T].
+    Tensor flatLogits =
+        LayerUtils::flatten3DTo2D(logits);
+
+    Tensor flatTargets({ targets.size() });
+
+    for (size_t i = 0; i < targets.size(); ++i) {
+        flatTargets[i] = targets[i];
+    }
+
+    CrossEntropyLoss loss;
+    float lossValue = loss.forward(flatLogits, flatTargets);
+
+    assert(std::isfinite(lossValue));
+
+    Tensor flatGrad = loss.backward();
+
+    Tensor gradLogits =
+        LayerUtils::unflatten2DTo3D(
+            flatGrad,
+            2,
+            5
+        );
+
+    model.backward(gradLogits);
+
+    auto params = model.parameters();
+    assert(!params.empty());
+
+    bool foundNonZeroGrad = false;
+
+    for (Parameter* p : params) {
+        for (size_t i = 0; i < p->grad.size(); ++i) {
+            if (std::fabs(p->grad[i]) > 1e-7f) {
+                foundNonZeroGrad = true;
+                break;
+            }
+        }
+
+        if (foundNonZeroGrad) {
+            break;
+        }
+    }
+
+    assert(foundNonZeroGrad);
+
+    std::cout << "[PASS] Transformer backward multi-head\n";
+}
+
 /*
 _______________________________________________________________________________________________________________________________________________________________
 Add more test functions as needed
@@ -1854,54 +2310,68 @@ int main(int argc, char** argv) {
 	std::cout << "validating arguments..." << std::endl;
 
     bool runSmokeTest = false;
+	bool bypassCoreTests = false;
 
     for (int i = 0; i < argc; ++i) {
         if (std::string(argv[i]) == "--smoke") {
             runSmokeTest = true;
 			std::cout << "Running smoke tests enabled." << std::endl;
         }
+		if (std::string(argv[i]) == "--bypass") {
+			bypassCoreTests = true;
+			std::cout << "Bypassing core tests enabled." << std::endl;
+		}
 		// TODO: Add more command-line argument parsing as needed
     }
 
-    coreTest();
-    layersTest();
-    dataTest();
-    configTest();
-    mhaTest();
-    testParameterBasics();
-	testOptimizerZeroGrad();
-	testSGDOptimizerBasicStep();
-	testSGDOptimizerWeightDecay();
-	testAdamOptimizerFirstStep();
-	testAdamOptimizerMultipleStepsConstantGrad();
-	testAdamOptimizerWeightDecay();
-	testAdamOptimizerZeroGradInherited();
-	testCrossEntropyLossPerfectConfidence();
-	testCrossEntropyLossUniformLogits();
-	testCrossEntropyLossBatchAverage();
-	testTrainingHistory();
-	testCheckpointSaveLoad();
-	testTrainerBasicTrainingLoop();
-	testTensorToCUDAAndBack();
-	testTensorCudaCopyConstructor();
-    try {
-        testTensorFillCUDA();
-        testTensorScaleCUDA();
-        testTensorAddCUDA();
+    if (!bypassCoreTests) {
+        coreTest();
+        layersTest();
+        dataTest();
+        configTest();
+        mhaTest();
+        testParameterBasics();
+        testOptimizerZeroGrad();
+        testSGDOptimizerBasicStep();
+        testSGDOptimizerWeightDecay();
+        testAdamOptimizerFirstStep();
+        testAdamOptimizerMultipleStepsConstantGrad();
+        testAdamOptimizerWeightDecay();
+        testAdamOptimizerZeroGradInherited();
+        testCrossEntropyLossPerfectConfidence();
+        testCrossEntropyLossUniformLogits();
+        testCrossEntropyLossBatchAverage();
+        testTrainingHistory();
+        testCheckpointSaveLoad();
+        testTrainerBasicTrainingLoop();
+        testTensorToCUDAAndBack();
+        testTensorCudaCopyConstructor();
+        try {
+            testTensorFillCUDA();
+            testTensorScaleCUDA();
+            testTensorAddCUDA();
+        }
+        catch (const std::exception& e) {
+            std::cerr << "\n[CUDA TEST FAILURE]\n" << e.what() << "\n";
+        }
+        testSGDOptimizerCUDAParity();
+        testAdamOptimizerCUDAParity();
+        testAdamOptimizerCUDAParityMultipleSteps();
+        testCrossEntropyLossCUDAParity();
+        testCrossEntropyLossCUDAUniformParity();
+        testLinearForwardCUDAParity();
+        testLinearClassForwardCUDAParity();
+        testLinearBackward();
+        testFFNBackward();
+        testLayerNormBackward();
+        testSelfAttentionBackward();
+        testTransformerBlockSingleHeadBackward();
+        testMultiHeadAttentionBackward();
+        testTransformerBlockMultiHeadBackward();
+        testEmbeddingBackward();
+        testTransformerBackwardSingleHead();
+        testTransformerBackwardMultiHead();
     }
-    catch (const std::exception& e) {
-        std::cerr << "\n[CUDA TEST FAILURE]\n" << e.what() << "\n";
-    }
-	testSGDOptimizerCUDAParity();
-    testAdamOptimizerCUDAParity();
-	testAdamOptimizerCUDAParityMultipleSteps();
-	testCrossEntropyLossCUDAParity();
-	testCrossEntropyLossCUDAUniformParity();
-	testLinearForwardCUDAParity();
-	testLinearClassForwardCUDAParity();
-    testLinearBackward();
-	testFFNBackward();
-	testLayerNormBackward();
 
 	if (runSmokeTest) {
 		std::cout << "\nRunning smoke tests..." << std::endl;

@@ -62,11 +62,6 @@ public:
         );
 
     Tensor forward(const Tensor& tokenIds) override;
+    void backward(const Tensor& gradOutput) override;
     std::vector<Parameter*> parameters() override;
-
-    void backward(const Tensor& gradOutput) override {
-        throw std::runtime_error(
-            "Transformer::backward not implemented yet."
-        );
-    }
 };

@@ -29,10 +29,17 @@ private:
     Linear valueProj_;
     Linear outputProj_;
 
+	Tensor cachedInput_;
+	Tensor cachedQ_;
+	Tensor cachedK_;
+	Tensor cachedV_;
+	Tensor cachedAttentionWeights_;
+
 public:
     SelfAttention(size_t embedDim, Random& rng);
 
     Tensor forward(const Tensor& input);
+    Tensor backward(const Tensor& gradOutput);
 	std::vector<Parameter*> parameters();   
 };
 
@@ -49,9 +56,16 @@ private:
     Linear valueProj_;
     Linear outputProj_;
 
+	Tensor cachedInput_;
+    Tensor cachedQ_;
+    Tensor cachedK_;
+    Tensor cachedV_;
+    Tensor cachedAttentionWeights_;
+
 public:
     explicit MultiHeadAttention(const AttentionConfig& config, Random& rng);
 
     Tensor forward(const Tensor& input);
+    Tensor backward(const Tensor& gradOutput);
     std::vector<Parameter*> parameters();
 };

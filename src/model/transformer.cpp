@@ -89,6 +89,44 @@ Tensor Transformer::forward(const Tensor& tokenIds) {
     return LayerUtils::unflatten2DTo3D(logitsFlat, batchSize, sequenceLength);
 }
 
+void Transformer::backward(const Tensor& gradOutput) {
+    if (gradOutput.rank() != 3) {
+        throw std::invalid_argument(
+            "Transformer::backward expects gradOutput shape [batch, sequence, vocabSize]."
+        );
+    }
+
+    size_t batchSize = gradOutput.shape()[0];
+    size_t sequenceLength = gradOutput.shape()[1];
+    size_t gradVocabSize = gradOutput.shape()[2];
+
+    if (gradVocabSize != vocabSize_) {
+        throw std::invalid_argument("Transformer::backward vocab size mismatch.");
+    }
+
+    Tensor flatGradOutput =
+        LayerUtils::flatten3DTo2D(gradOutput);
+
+    Tensor gradHiddenFlat =
+        outputHead_.backward(flatGradOutput);
+
+    Tensor gradHidden =
+        LayerUtils::unflatten2DTo3D(
+            gradHiddenFlat,
+            batchSize,
+            sequenceLength
+        );
+
+    Tensor grad = finalNorm_.backward(gradHidden);
+
+    for (auto it = blocks_.rbegin(); it != blocks_.rend(); ++it) {
+        grad = it->backward(grad);
+    }
+
+    tokenEmbedding_.backward(grad);
+    positionEmbedding_.backward(grad);
+}
+
 std::string Transformer::generate(
     const std::string& prompt,
     const CharTokenizer& tokenizer,
