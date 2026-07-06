@@ -73,7 +73,7 @@ Tensor Linear::forward(const Tensor& input) {
     }
 }
 
-Tensor Linear::backward(const Tensor& gradOutput)
+Tensor Linear::backward(Tensor& gradOutput)
 {
     if (cachedInput_.empty()) {
         throw std::runtime_error("Linear::backward called before forward.");
@@ -92,6 +92,34 @@ Tensor Linear::backward(const Tensor& gradOutput)
 
     if (cachedInput_.shape()[0] != batchSize) {
         throw std::invalid_argument("Linear::backward batch size mismatch.");
+    }
+
+    if (gradOutput.device() == Device::CUDA || cachedInput_.device() == Device::CUDA) {
+        cachedInput_.toCUDA();
+        weights_.value.toCUDA();
+        gradOutput.toCUDA();
+
+        Tensor gradInput({ batchSize, inFeatures_ }, 0.0f);
+        gradInput.toCUDA();
+
+        weights_.grad.fill(0.0f);
+        bias_.grad.fill(0.0f);
+        weights_.grad.toCUDA();
+        bias_.grad.toCUDA();
+
+        launchLinearBackward(
+            cachedInput_.deviceData(),
+            weights_.value.deviceData(),
+            const_cast<Tensor&>(gradOutput).deviceData(),
+            gradInput.deviceData(),
+            weights_.grad.deviceData(),
+            bias_.grad.deviceData(),
+            batchSize,
+            inFeatures_,
+            outFeatures_
+        );
+
+        return gradInput;
     }
 
     Tensor gradInput({ batchSize, inFeatures_ }, 0.0f);

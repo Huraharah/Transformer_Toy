@@ -1,4 +1,6 @@
 #include "layers/embedding.h"
+#include "kernels/embedding_kernels.cuh"
+#include "kernels/tensor_ops_kernels.cuh"
 
 #include <cmath>
 #include <stdexcept>
@@ -26,6 +28,30 @@ Tensor Embedding::forward(const Tensor& tokenIds) {
     size_t sequenceLength = tokenIds.shape()[1];
 
     Tensor output({ batchSize, sequenceLength, embeddingDim_ }, 0.0f);
+
+    if (tokenIds.device() == Device::CUDA) {
+        Tensor& mutableTokenIds = const_cast<Tensor&>(tokenIds);
+
+        cachedTokenIds_ = tokenIds;
+        cachedTokenIds_.toCUDA();
+
+        mutableTokenIds.toCUDA();
+        table_.value.toCUDA();
+
+        output.toCUDA();
+
+        launchEmbeddingForward(
+            mutableTokenIds.deviceData(),
+            table_.value.deviceData(),
+            output.deviceData(),
+            batchSize,
+            sequenceLength,
+            embeddingDim_,
+            vocabSize_
+        );
+
+        return output;
+    }
 
     for (size_t b = 0; b < batchSize; ++b) {
         for (size_t t = 0; t < sequenceLength; ++t) {
@@ -69,6 +95,31 @@ Tensor Embedding::backward(const Tensor& gradOutput) {
     }
 
     table_.grad.fill(0.0f);
+
+    if (gradOutput.device() == Device::CUDA || cachedTokenIds_.device() == Device::CUDA) {
+        Tensor& mutableGradOutput = const_cast<Tensor&>(gradOutput);
+
+        cachedTokenIds_.toCUDA();
+        mutableGradOutput.toCUDA();
+
+        table_.grad.toCUDA();
+        launchTensorFill(table_.grad, 0.0f);
+
+        launchEmbeddingBackward(
+            cachedTokenIds_.deviceData(),
+            mutableGradOutput.deviceData(),
+            table_.grad.deviceData(),
+            batchSize,
+            sequenceLength,
+            embeddingDim_,
+            vocabSize_
+        );
+
+        Tensor gradInput(cachedTokenIds_.shape(), 0.0f);
+        gradInput.toCUDA();
+
+        return gradInput;
+    }
 
     for (size_t b = 0; b < batchSize; ++b) {
         for (size_t t = 0; t < sequenceLength; ++t) {

@@ -1,4 +1,6 @@
 #include "layers/layer_norm.h"
+#include "kernels/layer_norm_kernels.cuh"
+#include "core/cuda_utils.h"
 
 #include <cmath>
 #include <stdexcept>
@@ -33,6 +35,37 @@ Tensor LayerNorm::forward(const Tensor& input) {
     }
 
     Tensor output(input.shape(), 0.0f);
+
+    if (input.device() == Device::CUDA) {
+        Tensor& mutableInput = const_cast<Tensor&>(input);
+
+        cachedInput_ = input;
+        cachedMean_ = Tensor({ batchSize, sequenceLength }, 0.0f);
+        cachedInvStd_ = Tensor({ batchSize, sequenceLength }, 0.0f);
+
+        mutableInput.toCUDA();
+        gamma_.value.toCUDA();
+        beta_.value.toCUDA();
+
+        output.toCUDA();
+        cachedMean_.toCUDA();
+        cachedInvStd_.toCUDA();
+
+        launchLayerNormForward(
+            mutableInput.deviceData(),
+            gamma_.value.deviceData(),
+            beta_.value.deviceData(),
+            output.deviceData(),
+            cachedMean_.deviceData(),
+            cachedInvStd_.deviceData(),
+            batchSize,
+            sequenceLength,
+            featureDim_,
+            epsilon_
+        );
+
+        return output;
+    }
 
     for (size_t b = 0; b < batchSize; ++b) {
         for (size_t t = 0; t < sequenceLength; ++t) {
@@ -103,6 +136,41 @@ Tensor LayerNorm::backward(const Tensor& gradOutput) {
     beta_.grad.fill(0.0f);
 
     float invN = 1.0f / static_cast<float>(featureDim_);
+
+    if (gradOutput.device() == Device::CUDA || cachedInput_.device() == Device::CUDA) {
+        Tensor& mutableGradOutput = const_cast<Tensor&>(gradOutput);
+
+        cachedInput_.toCUDA();
+        cachedMean_.toCUDA();
+        cachedInvStd_.toCUDA();
+        mutableGradOutput.toCUDA();
+        gamma_.value.toCUDA();
+
+        Tensor gradInput(gradOutput.shape(), 0.0f);
+        gradInput.toCUDA();
+
+        gamma_.grad.fill(0.0f);
+        beta_.grad.fill(0.0f);
+
+        gamma_.grad.toCUDA();
+        beta_.grad.toCUDA();
+
+        launchLayerNormBackward(
+            cachedInput_.deviceData(),
+            mutableGradOutput.deviceData(),
+            gamma_.value.deviceData(),
+            cachedMean_.deviceData(),
+            cachedInvStd_.deviceData(),
+            gradInput.deviceData(),
+            gamma_.grad.deviceData(),
+            beta_.grad.deviceData(),
+            batchSize,
+            sequenceLength,
+            featureDim_
+        );
+
+        return gradInput;
+    }
 
     for (size_t b = 0; b < batchSize; ++b) {
         for (size_t t = 0; t < sequenceLength; ++t) {

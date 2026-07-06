@@ -5,7 +5,6 @@
 #include <vector>
 
 namespace MathUtils {
-
 	std::vector<float> softmax(const std::vector<float>& values);
 
 	float relu(float x);
@@ -13,8 +12,6 @@ namespace MathUtils {
 	float gelu(float x);
 
 	Tensor add(const Tensor& a, const Tensor& b);
-
-	float crossEntropyLoss(const Tensor& logits, const Tensor& targets);
 
 	float perplexity(float crossEntropyLoss);
 
@@ -25,5 +22,4 @@ namespace MathUtils {
 	float tokenAccuracy(const Tensor& logits, const Tensor& targets);
 
 	float geluDerivative(float x);
-
 }

@@ -18,7 +18,7 @@ public:
     Linear(size_t inFeatures, size_t outFeatures, Random& rng);
 
     Tensor forward(const Tensor& input);
-    Tensor backward(const Tensor& gradOutput);
+    Tensor backward(Tensor& gradOutput);
 
 
     const Tensor& weights() const;

@@ -1,6 +1,7 @@
 #include "layers/attention.h"
 #include "core/math_utils.h"
 #include "core/parameter.h"
+#include "kernels/attention_kernels.cuh"
 
 #include <cmath>
 #include <vector>
@@ -43,6 +44,36 @@ Tensor SelfAttention::forward(const Tensor& input){
     cachedK_ = K;
     cachedV_ = V;
     cachedAttentionWeights_ = Tensor({ batchSize, sequenceLength, sequenceLength }, 0.0f);
+
+    if (input.device() == Device::CUDA) {
+        Q.toCUDA();
+        K.toCUDA();
+        V.toCUDA();
+        cachedAttentionWeights_.toCUDA();
+
+        Tensor attended({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+        attended.toCUDA();
+
+        launchSelfAttentionForward(
+            cachedQ_.deviceData(),
+            cachedK_.deviceData(),
+            cachedV_.deviceData(),
+            cachedAttentionWeights_.deviceData(),
+            attended.deviceData(),
+            batchSize,
+            sequenceLength,
+            embedDim_
+        );
+
+        Tensor flatAttended = LayerUtils::flatten3DTo2D(attended);
+        Tensor projectedFlat = outputProj_.forward(flatAttended);
+
+        return LayerUtils::unflatten2DTo3D(
+            projectedFlat,
+            batchSize,
+            sequenceLength
+        );
+    }
 
     Tensor attentionOutput({ batchSize, sequenceLength, embedDim_ }, 0.0f);
 
@@ -109,6 +140,55 @@ Tensor SelfAttention::backward(const Tensor& gradOutput) {
         batchSize,
         sequenceLength
     );
+
+    if (gradAttention.device() == Device::CUDA) {
+        cachedQ_.toCUDA();
+        cachedK_.toCUDA();
+        cachedV_.toCUDA();
+        cachedAttentionWeights_.toCUDA();
+        gradAttention.toCUDA();
+
+        Tensor gradQ({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+        Tensor gradK({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+        Tensor gradV({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+
+        gradQ.toCUDA();
+        gradK.toCUDA();
+        gradV.toCUDA();
+
+        launchSelfAttentionBackward(
+            cachedQ_.deviceData(),
+            cachedK_.deviceData(),
+            cachedV_.deviceData(),
+            cachedAttentionWeights_.deviceData(),
+            gradAttention.deviceData(),
+            gradQ.deviceData(),
+            gradK.deviceData(),
+            gradV.deviceData(),
+            batchSize,
+            sequenceLength,
+            embedDim_
+        );
+
+        Tensor gradQFlat = LayerUtils::flatten3DTo2D(gradQ);
+        Tensor gradKFlat = LayerUtils::flatten3DTo2D(gradK);
+        Tensor gradVFlat = LayerUtils::flatten3DTo2D(gradV);
+
+        Tensor gradInputQ = queryProj_.backward(gradQFlat);
+        Tensor gradInputK = keyProj_.backward(gradKFlat);
+        Tensor gradInputV = valueProj_.backward(gradVFlat);
+
+        Tensor gradInputFlat = MathUtils::add(
+            MathUtils::add(gradInputQ, gradInputK),
+            gradInputV
+        );
+
+        return LayerUtils::unflatten2DTo3D(
+            gradInputFlat,
+            batchSize,
+            sequenceLength
+        );
+    }
 
     Tensor gradQ({ batchSize, sequenceLength, embedDim_ }, 0.0f);
     Tensor gradK({ batchSize, sequenceLength, embedDim_ }, 0.0f);
@@ -236,6 +316,37 @@ Tensor MultiHeadAttention::forward(const Tensor& input){
     cachedV_ = V;
     cachedAttentionWeights_ = Tensor({ batchSize, numHeads_, sequenceLength, sequenceLength }, 0.0f);
 
+    if (input.device() == Device::CUDA) {
+        Q.toCUDA();
+        K.toCUDA();
+        V.toCUDA();
+        cachedAttentionWeights_.toCUDA();
+
+        Tensor attended({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+        attended.toCUDA();
+
+        launchMultiHeadAttentionForward(
+            cachedQ_.deviceData(),
+            cachedK_.deviceData(),
+            cachedV_.deviceData(),
+            cachedAttentionWeights_.deviceData(),
+            attended.deviceData(),
+            batchSize,
+            sequenceLength,
+            numHeads_,
+            headDim_
+        );
+
+        Tensor flatAttended = LayerUtils::flatten3DTo2D(attended);
+        Tensor projectedFlat = outputProj_.forward(flatAttended);
+
+        return LayerUtils::unflatten2DTo3D(
+            projectedFlat,
+            batchSize,
+            sequenceLength
+        );
+    }
+
     Tensor attentionOutput({ batchSize, sequenceLength, embedDim_ }, 0.0f);
 
     float scale = 1.0f / std::sqrt(static_cast<float>(headDim_));
@@ -302,6 +413,56 @@ Tensor MultiHeadAttention::backward(const Tensor& gradOutput) {
         batchSize,
         sequenceLength
     );
+
+    if (gradConcat.device() == Device::CUDA) {
+        cachedQ_.toCUDA();
+        cachedK_.toCUDA();
+        cachedV_.toCUDA();
+        cachedAttentionWeights_.toCUDA();
+        gradConcat.toCUDA();
+
+        Tensor gradQ({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+        Tensor gradK({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+        Tensor gradV({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+
+        gradQ.toCUDA();
+        gradK.toCUDA();
+        gradV.toCUDA();
+
+        launchMultiHeadAttentionBackward(
+            cachedQ_.deviceData(),
+            cachedK_.deviceData(),
+            cachedV_.deviceData(),
+            cachedAttentionWeights_.deviceData(),
+            gradConcat.deviceData(),
+            gradQ.deviceData(),
+            gradK.deviceData(),
+            gradV.deviceData(),
+            batchSize,
+            sequenceLength,
+            numHeads_,
+            headDim_
+        );
+
+        Tensor gradQFlat = LayerUtils::flatten3DTo2D(gradQ);
+        Tensor gradKFlat = LayerUtils::flatten3DTo2D(gradK);
+        Tensor gradVFlat = LayerUtils::flatten3DTo2D(gradV);
+
+        Tensor gradInputQ = queryProj_.backward(gradQFlat);
+        Tensor gradInputK = keyProj_.backward(gradKFlat);
+        Tensor gradInputV = valueProj_.backward(gradVFlat);
+
+        Tensor gradInputFlat = MathUtils::add(
+            MathUtils::add(gradInputQ, gradInputK),
+            gradInputV
+        );
+
+        return LayerUtils::unflatten2DTo3D(
+            gradInputFlat,
+            batchSize,
+            sequenceLength
+        );
+    }
 
     Tensor gradQ({ batchSize, sequenceLength, embedDim_ }, 0.0f);
     Tensor gradK({ batchSize, sequenceLength, embedDim_ }, 0.0f);

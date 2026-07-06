@@ -1,4 +1,5 @@
 #include "core/math_utils.h"
+#include "kernels/tensor_ops_kernels.cuh"
 
 #include <cmath>
 #include <stdexcept>
@@ -47,71 +48,33 @@ namespace MathUtils {
             ));
     }
 
-    Tensor MathUtils::add(const Tensor& a, const Tensor& b) {
+    Tensor add(const Tensor& a, const Tensor& b) {
         if (a.shape() != b.shape()) {
             throw std::invalid_argument("Tensor add shape mismatch.");
         }
 
-        Tensor output(a.shape(), 0.0f);
+        Tensor result(a.shape(), 0.0f);
+
+        if (a.device() == Device::CUDA || b.device() == Device::CUDA) {
+            launchTensorAdd(
+                a, b, result
+            );
+
+            return result;
+        }
 
         for (size_t i = 0; i < a.size(); ++i) {
-            output[i] = a[i] + b[i];
+            result[i] = a[i] + b[i];
         }
 
-        return output;
+        return result;
     }
 
-    float MathUtils::crossEntropyLoss(const Tensor& logits, const Tensor& targets) {
-        if (logits.rank() != 3) {
-            throw std::invalid_argument("crossEntropyLoss expects logits shape [batch, sequence, vocab].");
-        }
-
-        if (targets.rank() != 2) {
-            throw std::invalid_argument("crossEntropyLoss expects targets shape [batch, sequence].");
-        }
-
-        size_t batchSize = logits.shape()[0];
-        size_t sequenceLength = logits.shape()[1];
-        size_t vocabSize = logits.shape()[2];
-
-        if (targets.shape()[0] != batchSize || targets.shape()[1] != sequenceLength) {
-            throw std::invalid_argument("crossEntropyLoss target shape mismatch.");
-        }
-
-        float totalLoss = 0.0f;
-        size_t count = batchSize * sequenceLength;
-
-        for (size_t b = 0; b < batchSize; ++b) {
-            for (size_t t = 0; t < sequenceLength; ++t) {
-                size_t targetId = static_cast<size_t>(targets.at({ b, t }));
-
-                if (targetId >= vocabSize) {
-                    throw std::out_of_range("crossEntropyLoss target ID out of range.");
-                }
-
-                std::vector<float> scores(vocabSize);
-
-                for (size_t v = 0; v < vocabSize; ++v) {
-                    scores[v] = logits.at({ b, t, v });
-                }
-
-                std::vector<float> probs = softmax(scores);
-
-                float p = probs[targetId];
-
-                constexpr float epsilon = 1e-12f;
-                totalLoss += -std::log(p + epsilon);
-            }
-        }
-
-        return totalLoss / static_cast<float>(count);
-    }
-
-    float MathUtils::perplexity(float crossEntropyLoss) {
+    float perplexity(float crossEntropyLoss) {
         return std::exp(crossEntropyLoss);
     }
 
-    float MathUtils::tokenAccuracy(const Tensor& logits, const Tensor& targets) {
+    float tokenAccuracy(const Tensor& logits, const Tensor& targets) {
         if (logits.rank() != 3) {
             throw std::invalid_argument("tokenAccuracy expects logits shape [batch, sequence, vocab].");
         }
@@ -160,7 +123,7 @@ namespace MathUtils {
         return static_cast<float>(correct) / static_cast<float>(total);
     }
 
-    float MathUtils::geluDerivative(float x) {
+    float geluDerivative(float x) {
         constexpr float sqrt2OverPi = 0.7978845608028654f;
         constexpr float coeff = 0.044715f;
 

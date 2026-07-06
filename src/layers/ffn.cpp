@@ -1,6 +1,7 @@
 #include "layers/ffn.h"
 #include "core/math_utils.h"
 #include "core/parameter.h"
+#include "kernels/activation_kernels.cuh"
 
 #include <stdexcept>
 
@@ -40,8 +41,12 @@ Tensor FFN::forward(const Tensor& input){
 
 	cachedHiddenPreActivation_ = hidden; // Cache for backward pass
 
-    for (size_t i = 0; i < hidden.size(); ++i) {
-        hidden[i] = MathUtils::gelu(hidden[i]);
+	if (hidden.device() == Device::CUDA) {
+        launchGeluForward(hidden.deviceData(), hidden.size());
+    } else {
+		for (size_t i = 0; i < hidden.size(); ++i) {
+			hidden[i] = MathUtils::gelu(hidden[i]);
+		}
     }
 
     Tensor outputFlat = linear2_.forward(hidden);
@@ -86,10 +91,16 @@ Tensor FFN::backward(const Tensor& gradOutput) {
 	}
 
 	Tensor gradHidden = linear2_.backward(flatGradOutput);
-	for (size_t i = 0; i < gradHidden.size(); ++i) {
-		float x = cachedHiddenPreActivation_[i];
-		float geluGrad = MathUtils::geluDerivative(x);
-		gradHidden[i] *= geluGrad;
+
+	if (gradHidden.device() == Device::CUDA) {
+		launchGeluBackward(cachedHiddenPreActivation_.deviceData(), gradHidden.deviceData(), gradHidden.size());
+	}
+	else {
+		for (size_t i = 0; i < gradHidden.size(); ++i) {
+			float x = cachedHiddenPreActivation_[i];
+			float geluGrad = MathUtils::geluDerivative(x);
+			gradHidden[i] *= geluGrad;
+		}
 	}
 
 	if (cachedHiddenPreActivation_.size() != gradHidden.size()) {

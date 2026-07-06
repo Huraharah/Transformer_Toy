@@ -22,7 +22,7 @@ namespace {
 
     void printSection(const std::string& title) {
         std::cout << "\n==================================================\n";
-        std::cout << "|| " << title << "\n";
+        std::cout << "||               " << title << "                      ||\n";
         std::cout << "==================================================\n\n";
     }
 
@@ -190,6 +190,8 @@ namespace {
 		std::cout << generatedSample << "\n"
 			<< "---------------------------------------------------\n";
 
+        std::cout << std::setprecision(6);
+
         std::cout
             << "==================================================\n"
             << "||            Model Configuration               ||\n"
@@ -208,24 +210,20 @@ namespace {
 
 }
 
-void runTinyShakespeareSmokeTestCPU() {
-    runTinyShakespeareSmokeTest(Device::CPU);
-}
-
-void runTinyShakespeareSmokeTestCUDA() {
-    if (!cudaAvailableForSmokeTest()) {
-        std::cout << "[SKIP] CUDA smoke test skipped: CUDA not available\n";
-        return;
-    }
-
-    runTinyShakespeareSmokeTest(Device::CUDA);
-}
-
-void runSmokeTests() {
+void runSmokeTests(Device device) {
     printSection("Smoke Tests");
 
-    runTinyShakespeareSmokeTestCPU();
-    //runTinyShakespeareSmokeTestCUDA();
+    if (device == Device::CPU || device == Device::AUTO) {
+        runTinyShakespeareSmokeTest(Device::CPU);
+    }
+    if (device == Device::CUDA || device == Device::AUTO) {
+		if (cudaAvailableForSmokeTest()) {
+			runTinyShakespeareSmokeTest(Device::CUDA);
+		}
+		else {
+			std::cout << "[SKIP] CUDA not available, skipping CUDA smoke test\n";
+		}
+    }
 
     std::cout << "\n[PASS] Smoke test suite completed\n";
 }

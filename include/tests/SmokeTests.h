@@ -1,5 +1,4 @@
 #pragma once
+#include <core/tensor.h>
 
-void runSmokeTests();
-void runTinyShakespeareSmokeTestCPU();
-void runTinyShakespeareSmokeTestCUDA();
+void runSmokeTests(Device device);

@@ -51,9 +51,6 @@
     <ClInclude Include="include\model\transformer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\tests\test_utils.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="include\core\math_utils.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -96,9 +93,6 @@
     <ClInclude Include="include\core\cuda_utils.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\core\tensor_ops.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="include\kernels\optimizer_kernels.cuh" />
     <ClInclude Include="include\kernels\loss_kernels.cuh" />
     <ClInclude Include="include\kernels\kernel_config.cuh" />
@@ -109,6 +103,9 @@
     <ClInclude Include="include\tests\SmokeTests.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="include\kernels\embedding_kernels.cuh" />
+    <ClInclude Include="include\kernels\layer_norm_kernels.cuh" />
+    <ClInclude Include="include\kernels\attention_kernels.cuh" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\core\layer.cpp">
@@ -147,9 +144,6 @@
     <ClCompile Include="src\model\transformer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\tests\test_utils.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -177,14 +171,19 @@
     <CudaCompile Include="src\training\cross_entropy_loss.cpp" />
     <CudaCompile Include="src\training\sgd_optimizer.cpp" />
     <CudaCompile Include="src\training\trainer.cpp" />
-    <CudaCompile Include="src\core\tensor_ops.cu">
+    <CudaCompile Include="src\kernels\tensor_ops_kernels.cu">
       <Filter>Source Files</Filter>
     </CudaCompile>
     <CudaCompile Include="src\kernels\optimizer_kernels.cu" />
     <CudaCompile Include="src\kernels\loss_kernels.cu" />
     <CudaCompile Include="src\kernels\linear_kernels.cu" />
     <CudaCompile Include="src\kernels\reduction_kernels.cu" />
-    <CudaCompile Include="src\kernels\tensor_ops_kernels.cu" />
     <CudaCompile Include="src\kernels\activation_kernels.cu" />
+    <CudaCompile Include="src\kernels\embeding_kernels.cu" />
+    <CudaCompile Include="src\kernels\layer_norm_kernels.cu" />
+    <CudaCompile Include="src\kernels\attention_kernels.cu" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="data\shakespeare.txt" />
   </ItemGroup>
 </Project>

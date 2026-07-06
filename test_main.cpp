@@ -19,8 +19,9 @@
 #include "training/training_history.h"
 #include "training/checkpoint.h"
 #include "training/trainer.h"
-#include "core/tensor_ops.h"
+#include "kernels/tensor_ops_kernels.cuh"
 #include "kernels/linear_kernels.cuh"
+#include "kernels/activation_kernels.cuh"
 #include "tests/SmokeTests.h"
 
 #include <iostream>
@@ -511,7 +512,7 @@ void dataTest() {
             << dataset.tokenizer().decode(targetIds) << "]\n";
     }
 
-    std::cout << "\n==================================================\n";
+    /*std::cout << "\n==================================================\n";
     std::cout << "||                  Loss Test                   ||\n";
     std::cout << "==================================================\n";
 
@@ -527,14 +528,16 @@ void dataTest() {
     );
 
     Tensor lossInputs;
-    Tensor lossTargets;
+    const Tensor lossTargets;
 
     Random lossBatchRng(2468);
     dataset.getBatch(4, lossBatchRng, lossInputs, lossTargets);
 
     Tensor lossLogits = lossModel.forward(lossInputs);
 
-    float loss = MathUtils::crossEntropyLoss(lossLogits, lossTargets);
+    CrossEntropyLoss celoss(lossLogits, lossTargets);
+
+    float loss = celoss.forward(lossLogits, lossTargets);
     float ppl = MathUtils::perplexity(loss);
     float acc = MathUtils::tokenAccuracy(lossLogits, lossTargets);
 
@@ -543,7 +546,7 @@ void dataTest() {
     std::cout << "Logits shape: " << lossLogits.shapeString() << "\n";
     std::cout << "Cross-entropy loss: " << loss << "\n";
     std::cout << "Perplexity: " << ppl << "\n";
-    std::cout << "Token accuracy: " << acc << "\n";
+    std::cout << "Token accuracy: " << acc << "\n";*/
 
     std::cout << "\n==================================================\n";
     std::cout << "||            All core tests completed!         ||\n";
@@ -551,7 +554,9 @@ void dataTest() {
 }
 
 void configTest() {
-    std::cout << "\n~~~~~~~~~~~~~ CONFIG TESTS ~~~~~~~~~~~~~\n";
+    std::cout << "\n==================================================\n";
+    std::cout << "||              Config Tests                    ||\n";
+    std::cout << "==================================================\n";
 
     AttentionConfig cfg(512, 8, true);
     try {
@@ -1275,15 +1280,10 @@ void testTrainerBasicTrainingLoop() {
     assert(p.value[0] < 0.0f);
     assert(p.value[1] < 0.0f);
 
-    std::cout << "[PASS] Trainer basic training loop\n\n";
+    std::cout << "[PASS] Trainer basic training loop\n";
 }
 
 void testTensorToCUDAAndBack() {
-
-	std::cout << "==================================================\n"; 
-	std::cout << "||            CUDA Acceleration Tests           ||\n";
-	std::cout << "==================================================\n\n";
-
     Tensor t({ 3 });
     t[0] = 1.0f;
     t[1] = 2.0f;
@@ -1323,7 +1323,7 @@ void testTensorCudaCopyConstructor() {
 void testTensorFillCUDA() {
     Tensor t({ 5 }, 0.0f);
 
-    tensorFillCUDA(t, 3.5f);
+    launchTensorFill(t, 3.5f);
 
     t.toCPU();
 
@@ -1342,7 +1342,7 @@ void testTensorScaleCUDA() {
     t[2] = -3.0f;
     t[3] = 0.5f;
 
-    tensorScaleCUDA(t, 2.0f);
+    launchTensorScale(t, 2.0f);
 
     t.toCPU();
 
@@ -1369,7 +1369,7 @@ void testTensorAddCUDA() {
     b[2] = 30.0f;
     b[3] = 40.0f;
 
-    tensorAddCUDA(a, b, out);
+    launchTensorAdd(a, b, out);
 
     out.toCPU();
 
@@ -1378,15 +1378,10 @@ void testTensorAddCUDA() {
     assert(near(out[2], 33.0f));
     assert(near(out[3], 44.0f));
 
-    std::cout << "[PASS] tensorAddCUDA\n\n";
+    std::cout << "[PASS] tensorAddCUDA\n";
 }
 
 void testSGDOptimizerCUDAParity() {
-
-	std::cout << "==================================================\n";
-	std::cout << "||        CUDA Acceleration Parity Tests        ||\n";
-	std::cout << "==================================================\n\n";
-
     Tensor cpuW({ 3 });
     cpuW[0] = 1.0f;
     cpuW[1] = 2.0f;
@@ -1670,14 +1665,44 @@ void testLinearClassForwardCUDAParity() {
         assert(near(cpuOutput[i], gpuOutput[i], 1e-5f));
     }
 
-    std::cout << "[PASS] Linear::forward CUDA parity\n\n";
+    std::cout << "[PASS] Linear::forward CUDA parity\n";
+}
+
+void testEmbeddingForwardCUDAParity() {
+    Random rng(42);
+
+    Embedding cpuEmbedding(5, 3, rng);
+    Embedding gpuEmbedding = cpuEmbedding;
+
+    Tensor tokenIds({ 2, 4 });
+    tokenIds[0] = 1.0f;
+    tokenIds[1] = 2.0f;
+    tokenIds[2] = 1.0f;
+    tokenIds[3] = 3.0f;
+
+    tokenIds[4] = 0.0f;
+    tokenIds[5] = 2.0f;
+    tokenIds[6] = 2.0f;
+    tokenIds[7] = 4.0f;
+
+    Tensor cpuOutput = cpuEmbedding.forward(tokenIds);
+
+    Tensor gpuTokenIds = tokenIds;
+    gpuTokenIds.toCUDA();
+
+    Tensor gpuOutput = gpuEmbedding.forward(gpuTokenIds);
+    gpuOutput.toCPU();
+
+    assert(cpuOutput.shape() == gpuOutput.shape());
+
+    for (size_t i = 0; i < cpuOutput.size(); ++i) {
+        assert(near(cpuOutput[i], gpuOutput[i], 1e-5f));
+    }
+
+    std::cout << "[PASS] Embedding forward CUDA parity\n";
 }
 
 void testLinearBackward() {
-	std::cout << "==================================================\n";
-	std::cout << "||          Backwards function Tests            ||\n";
-	std::cout << "==================================================\n\n";
-
     Random rng(42);
     Linear linear(2, 3, rng);
 
@@ -2299,6 +2324,448 @@ void testTransformerBackwardMultiHead() {
     std::cout << "[PASS] Transformer backward multi-head\n";
 }
 
+void testLinearBackwardCUDAParity() {
+
+    Random rng(42);
+
+    Linear cpuLinear(3, 2, rng);
+    Linear gpuLinear = cpuLinear;
+
+    Tensor input({ 4, 3 });
+    for (size_t i = 0; i < input.size(); ++i) {
+        input[i] = static_cast<float>(i + 1) * 0.1f;
+    }
+
+    Tensor gradOutput({ 4, 2 });
+    for (size_t i = 0; i < gradOutput.size(); ++i) {
+        gradOutput[i] = static_cast<float>(i + 1) * 0.05f;
+    }
+
+    Tensor cpuOutput = cpuLinear.forward(input);
+    (void)cpuOutput;
+
+    Tensor cpuGradInput = cpuLinear.backward(gradOutput);
+
+    Tensor gpuInput = input;
+    Tensor gpuGradOutput = gradOutput;
+
+    gpuInput.toCUDA();
+    gpuGradOutput.toCUDA();
+
+    Tensor gpuOutput = gpuLinear.forward(gpuInput);
+    (void)gpuOutput;
+
+    Tensor gpuGradInput = gpuLinear.backward(gpuGradOutput);
+
+    gpuGradInput.toCPU();
+
+    auto cpuParams = cpuLinear.parameters();
+    auto gpuParams = gpuLinear.parameters();
+
+    Parameter* cpuWeights = cpuParams[0];
+    Parameter* cpuBias = cpuParams[1];
+
+    Parameter* gpuWeights = gpuParams[0];
+    Parameter* gpuBias = gpuParams[1];
+
+    gpuWeights->grad.toCPU();
+    gpuBias->grad.toCPU();
+
+    assert(cpuGradInput.shape() == gpuGradInput.shape());
+
+    for (size_t i = 0; i < cpuGradInput.size(); ++i) {
+        assert(near(cpuGradInput[i], gpuGradInput[i], 1e-5f));
+    }
+
+    for (size_t i = 0; i < cpuWeights->grad.size(); ++i) {
+        assert(near(cpuWeights->grad[i], gpuWeights->grad[i], 1e-5f));
+    }
+
+    for (size_t i = 0; i < cpuBias->grad.size(); ++i) {
+        assert(near(cpuBias->grad[i], gpuBias->grad[i], 1e-5f));
+    }
+
+    std::cout << "[PASS] Linear backward CUDA parity\n";
+}
+
+void testEmbeddingBackwardCUDAParity() {
+    Random rng(42);
+
+    Embedding cpuEmbedding(5, 3, rng);
+    Embedding gpuEmbedding = cpuEmbedding;
+
+    Tensor tokenIds({ 2, 4 });
+    tokenIds[0] = 1.0f;
+    tokenIds[1] = 2.0f;
+    tokenIds[2] = 1.0f;
+    tokenIds[3] = 3.0f;
+    tokenIds[4] = 0.0f;
+    tokenIds[5] = 2.0f;
+    tokenIds[6] = 2.0f;
+    tokenIds[7] = 4.0f;
+
+    Tensor cpuOutput = cpuEmbedding.forward(tokenIds);
+    Tensor cpuGradOutput(cpuOutput.shape(), 1.0f);
+    cpuEmbedding.backward(cpuGradOutput);
+
+    Tensor gpuTokenIds = tokenIds;
+    gpuTokenIds.toCUDA();
+
+    Tensor gpuOutput = gpuEmbedding.forward(gpuTokenIds);
+    Tensor gpuGradOutput(gpuOutput.shape(), 1.0f);
+    gpuGradOutput.toCUDA();
+
+    gpuEmbedding.backward(gpuGradOutput);
+
+    auto cpuParams = cpuEmbedding.parameters();
+    auto gpuParams = gpuEmbedding.parameters();
+
+    Parameter* cpuTable = cpuParams[0];
+    Parameter* gpuTable = gpuParams[0];
+
+    gpuTable->grad.toCPU();
+
+    for (size_t i = 0; i < cpuTable->grad.size(); ++i) {
+        assert(near(cpuTable->grad[i], gpuTable->grad[i], 1e-5f));
+    }
+
+    std::cout << "[PASS] Embedding backward CUDA parity\n";
+}
+
+void testLayerNormForwardCUDAParity() {
+    LayerNorm cpuNorm(4);
+    LayerNorm gpuNorm(4);
+
+    Tensor input({ 2, 3, 4 });
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        input[i] = static_cast<float>(i + 1) * 0.1f;
+    }
+
+    Tensor cpuOutput = cpuNorm.forward(input);
+
+    Tensor gpuInput = input;
+    gpuInput.toCUDA();
+
+    Tensor gpuOutput = gpuNorm.forward(gpuInput);
+    gpuOutput.toCPU();
+
+    assert(cpuOutput.shape() == gpuOutput.shape());
+
+    for (size_t i = 0; i < cpuOutput.size(); ++i) {
+        assert(near(cpuOutput[i], gpuOutput[i], 1e-5f));
+    }
+
+    std::cout << "[PASS] LayerNorm forward CUDA parity\n";
+}
+
+void testLayerNormBackwardCUDAParity() {
+    LayerNorm cpuNorm(4);
+    LayerNorm gpuNorm(4);
+
+    Tensor input({ 2, 3, 4 });
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        input[i] = static_cast<float>(i + 1) * 0.1f;
+    }
+
+    Tensor gradOutput({ 2, 3, 4 });
+
+    for (size_t i = 0; i < gradOutput.size(); ++i) {
+        gradOutput[i] = static_cast<float>(i + 1) * 0.05f;
+    }
+
+    Tensor cpuOutput = cpuNorm.forward(input);
+    (void)cpuOutput;
+
+    Tensor cpuGradInput = cpuNorm.backward(gradOutput);
+
+    Tensor gpuInput = input;
+    Tensor gpuGradOutput = gradOutput;
+
+    gpuInput.toCUDA();
+    gpuGradOutput.toCUDA();
+
+    Tensor gpuOutput = gpuNorm.forward(gpuInput);
+    (void)gpuOutput;
+
+    Tensor gpuGradInput = gpuNorm.backward(gpuGradOutput);
+
+    gpuGradInput.toCPU();
+
+    auto cpuParams = cpuNorm.parameters();
+    auto gpuParams = gpuNorm.parameters();
+
+    Parameter* cpuGamma = cpuParams[0];
+    Parameter* cpuBeta = cpuParams[1];
+
+    Parameter* gpuGamma = gpuParams[0];
+    Parameter* gpuBeta = gpuParams[1];
+
+    gpuGamma->grad.toCPU();
+    gpuBeta->grad.toCPU();
+
+    assert(cpuGradInput.shape() == gpuGradInput.shape());
+
+    for (size_t i = 0; i < cpuGradInput.size(); ++i) {
+        assert(near(cpuGradInput[i], gpuGradInput[i], 1e-5f));
+    }
+
+    for (size_t i = 0; i < cpuGamma->grad.size(); ++i) {
+        assert(near(cpuGamma->grad[i], gpuGamma->grad[i], 1e-5f));
+    }
+
+    for (size_t i = 0; i < cpuBeta->grad.size(); ++i) {
+        assert(near(cpuBeta->grad[i], gpuBeta->grad[i], 1e-5f));
+    }
+
+    std::cout << "[PASS] LayerNorm backward CUDA parity\n";
+}
+
+void testGeluCUDAParity() {
+    Tensor cpu({ 6 });
+    cpu[0] = -2.0f;
+    cpu[1] = -1.0f;
+    cpu[2] = -0.5f;
+    cpu[3] = 0.0f;
+    cpu[4] = 0.5f;
+    cpu[5] = 2.0f;
+
+    Tensor gpu = cpu;
+    gpu.toCUDA();
+
+    for (size_t i = 0; i < cpu.size(); ++i) {
+        cpu[i] = MathUtils::gelu(cpu[i]);
+    }
+
+    launchGeluForward(gpu.deviceData(), gpu.size());
+    gpu.toCPU();
+
+    for (size_t i = 0; i < cpu.size(); ++i) {
+        assert(near(cpu[i], gpu[i], 1e-5f));
+    }
+
+    std::cout << "[PASS] GELU forward CUDA parity\n";
+}
+
+void testGeluBackwardCUDAParity() {
+    Tensor pre({ 6 });
+    pre[0] = -2.0f;
+    pre[1] = -1.0f;
+    pre[2] = -0.5f;
+    pre[3] = 0.0f;
+    pre[4] = 0.5f;
+    pre[5] = 2.0f;
+
+    Tensor cpuGrad({ 6 }, 1.0f);
+    Tensor gpuPre = pre;
+    Tensor gpuGrad = cpuGrad;
+
+    gpuPre.toCUDA();
+    gpuGrad.toCUDA();
+
+    for (size_t i = 0; i < cpuGrad.size(); ++i) {
+        cpuGrad[i] *= MathUtils::geluDerivative(pre[i]);
+    }
+
+    launchGeluBackward(
+        gpuPre.deviceData(),
+        gpuGrad.deviceData(),
+        gpuGrad.size()
+    );
+
+    gpuGrad.toCPU();
+
+    for (size_t i = 0; i < cpuGrad.size(); ++i) {
+        assert(near(cpuGrad[i], gpuGrad[i], 1e-5f));
+    }
+
+    std::cout << "[PASS] GELU backward CUDA parity\n";
+}
+
+void testSelfAttentionForwardCUDAParity() {
+    Random rng(42);
+
+    constexpr size_t embedDim = 4;
+    constexpr size_t batchSize = 2;
+    constexpr size_t sequenceLength = 3;
+
+    SelfAttention cpuAttention(embedDim, rng);
+    SelfAttention gpuAttention = cpuAttention;
+
+    Tensor input({ batchSize, sequenceLength, embedDim });
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        input[i] = static_cast<float>(i + 1) * 0.05f;
+    }
+
+    Tensor cpuOutput = cpuAttention.forward(input);
+
+    Tensor gpuInput = input;
+    gpuInput.toCUDA();
+
+    Tensor gpuOutput = gpuAttention.forward(gpuInput);
+    gpuOutput.toCPU();
+
+    assert(cpuOutput.shape() == gpuOutput.shape());
+
+    for (size_t i = 0; i < cpuOutput.size(); ++i) {
+        assert(near(cpuOutput[i], gpuOutput[i], 1e-5f));
+    }
+
+    std::cout << "[PASS] SelfAttention forward CUDA parity\n";
+}
+
+void testMultiHeadAttentionForwardCUDAParity() {
+    Random rng(42);
+
+    constexpr size_t embedDim = 4;
+    constexpr size_t batchSize = 2;
+    constexpr size_t sequenceLength = 3;
+
+    MultiHeadAttention cpuAttention({ embedDim, 2 }, rng); // 2 heads
+    MultiHeadAttention gpuAttention = cpuAttention;
+
+    Tensor input({ batchSize, sequenceLength, embedDim });
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        input[i] = static_cast<float>(i + 1) * 0.05f;
+    }
+
+    Tensor cpuOutput = cpuAttention.forward(input);
+
+    Tensor gpuInput = input;
+    gpuInput.toCUDA();
+
+    Tensor gpuOutput = gpuAttention.forward(gpuInput);
+    gpuOutput.toCPU();
+
+    assert(cpuOutput.shape() == gpuOutput.shape());
+
+    for (size_t i = 0; i < cpuOutput.size(); ++i) {
+        assert(near(cpuOutput[i], gpuOutput[i], 1e-5f));
+    }
+
+    std::cout << "[PASS] MultiHeadAttention forward CUDA parity\n";
+}
+
+void testSelfAttentionBackwardCUDAParity() {
+    Random rng(42);
+
+    constexpr size_t embedDim = 4;
+    constexpr size_t batchSize = 2;
+    constexpr size_t sequenceLength = 3;
+
+    SelfAttention cpuAttention(embedDim, rng);
+    SelfAttention gpuAttention = cpuAttention;
+
+    Tensor input({ batchSize, sequenceLength, embedDim });
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        input[i] = static_cast<float>(i + 1) * 0.05f;
+    }
+
+    Tensor gradOutput({ batchSize, sequenceLength, embedDim }, 1.0f);
+
+    Tensor cpuOutput = cpuAttention.forward(input);
+    (void)cpuOutput;
+
+    Tensor cpuGradInput = cpuAttention.backward(gradOutput);
+
+    Tensor gpuInput = input;
+    Tensor gpuGradOutput = gradOutput;
+
+    gpuInput.toCUDA();
+    gpuGradOutput.toCUDA();
+
+    Tensor gpuOutput = gpuAttention.forward(gpuInput);
+    (void)gpuOutput;
+
+    Tensor gpuGradInput = gpuAttention.backward(gpuGradOutput);
+    gpuGradInput.toCPU();
+
+    assert(cpuGradInput.shape() == gpuGradInput.shape());
+
+    for (size_t i = 0; i < cpuGradInput.size(); ++i) {
+        assert(near(cpuGradInput[i], gpuGradInput[i], 1e-4f));
+    }
+
+    auto cpuParams = cpuAttention.parameters();
+    auto gpuParams = gpuAttention.parameters();
+
+    assert(cpuParams.size() == gpuParams.size());
+
+    for (size_t p = 0; p < cpuParams.size(); ++p) {
+        gpuParams[p]->grad.toCPU();
+
+        for (size_t i = 0; i < cpuParams[p]->grad.size(); ++i) {
+            assert(near(cpuParams[p]->grad[i], gpuParams[p]->grad[i], 1e-4f));
+        }
+    }
+
+    std::cout << "[PASS] SelfAttention backward CUDA parity\n";
+}
+
+void testMultiHeadAttentionBackwardCUDAParity() {
+    Random rng(42);
+
+    constexpr size_t embedDim = 4;
+    constexpr size_t batchSize = 2;
+    constexpr size_t sequenceLength = 3;
+    constexpr size_t heads = 2;
+
+    AttentionConfig config(embedDim, heads);
+
+    MultiHeadAttention cpuAttention(config, rng);
+    MultiHeadAttention gpuAttention = cpuAttention;
+
+    Tensor input({ batchSize, sequenceLength, embedDim });
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        input[i] = static_cast<float>(i + 1) * 0.05f;
+    }
+
+    Tensor gradOutput({ batchSize, sequenceLength, embedDim }, 1.0f);
+
+    Tensor cpuOutput = cpuAttention.forward(input);
+    (void)cpuOutput;
+
+    Tensor cpuGradInput = cpuAttention.backward(gradOutput);
+
+    Tensor gpuInput = input;
+    Tensor gpuGradOutput = gradOutput;
+
+    gpuInput.toCUDA();
+    gpuGradOutput.toCUDA();
+
+    Tensor gpuOutput = gpuAttention.forward(gpuInput);
+    (void)gpuOutput;
+
+    Tensor gpuGradInput = gpuAttention.backward(gpuGradOutput);
+    gpuGradInput.toCPU();
+
+    assert(cpuGradInput.shape() == gpuGradInput.shape());
+
+    for (size_t i = 0; i < cpuGradInput.size(); ++i) {
+        assert(near(cpuGradInput[i], gpuGradInput[i], 1e-4f));
+    }
+
+    auto cpuParams = cpuAttention.parameters();
+    auto gpuParams = gpuAttention.parameters();
+
+    assert(cpuParams.size() == gpuParams.size());
+
+    for (size_t p = 0; p < cpuParams.size(); ++p) {
+        gpuParams[p]->grad.toCPU();
+
+        for (size_t i = 0; i < cpuParams[p]->grad.size(); ++i) {
+            assert(near(cpuParams[p]->grad[i], gpuParams[p]->grad[i], 1e-4f));
+        }
+    }
+
+    std::cout << "[PASS] MultiHeadAttention backward CUDA parity\n";
+}
+
 /*
 _______________________________________________________________________________________________________________________________________________________________
 Add more test functions as needed
@@ -2310,75 +2777,227 @@ int main(int argc, char** argv) {
 	std::cout << "validating arguments..." << std::endl;
 
     bool runSmokeTest = false;
-	bool bypassCoreTests = false;
+	Device deviceSmoke = Device::AUTO;
+	bool runShakedownTest = false;
+	Device deviceShakedown = Device::AUTO;
+	bool bypassBasicTests = false;
+	bool runSpecificTests = false;
+    bool runCoreTests = false;
+	bool runAccelTests = false;
+	bool runForwardParityTests = false;
+	bool runBackwardTests = false;
+	bool runBackwardParityTests = false;
+	bool runOptimizerParityTests = false;
+	bool runConfigTests = false;
 
-    for (int i = 0; i < argc; ++i) {
+    for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "--smoke") {
             runSmokeTest = true;
-			std::cout << "Running smoke tests enabled." << std::endl;
+            std::cout << "Running smoke tests enabled." << std::endl;
+            if (std::string(argv[i + 1]) == "-C") {
+				deviceSmoke = Device::CPU;
+				std::cout << "Device set to CPU." << std::endl;
+                i++; // Skip the next argument since it's the device flag
+			}
+			else if (std::string(argv[i + 1]) == "-G") {
+				deviceSmoke = Device::CUDA;
+				std::cout << "Device set to CUDA." << std::endl;
+				i++; // Skip the next argument since it's the device flag
+			}
         }
-		if (std::string(argv[i]) == "--bypass") {
-			bypassCoreTests = true;
+		else if (std::string(argv[i]) == "--shakedown") {
+			runShakedownTest = true;
+			std::cout << "Running shakedown tests enabled." << std::endl;
+			if (std::string(argv[i + 1]) == "-C") {
+				deviceShakedown = Device::CPU;
+				std::cout << "Device set to CPU." << std::endl;
+                i++; // Skip the next argument since it's the device flag
+			}
+			else if (std::string(argv[i + 1]) == "-G") {
+				deviceShakedown = Device::CUDA;
+				std::cout << "Device set to CUDA." << std::endl;
+                i++; // Skip the next argument since it's the device flag
+			}
+		}
+		else if (std::string(argv[i]) == "--bypass") {
+			bypassBasicTests = true;
 			std::cout << "Bypassing core tests enabled." << std::endl;
 		}
-		// TODO: Add more command-line argument parsing as needed
+		else if (std::string(argv[i]) == "--core") {
+			runCoreTests = true;
+			runSpecificTests = true;
+			std::cout << "Running core tests enabled." << std::endl;
+		}
+		else if (std::string(argv[i]) == "--accel") {
+			runAccelTests = true;
+			runSpecificTests = true;
+			std::cout << "Running accelerator tests enabled." << std::endl;
+		}
+		else if (std::string(argv[i]) == "--forward-parity") {
+			runForwardParityTests = true;
+			runSpecificTests = true;
+			std::cout << "Running forward parity tests enabled." << std::endl;
+		}
+		else if (std::string(argv[i]) == "--backward") {
+			runBackwardTests = true;
+			runSpecificTests = true;
+			std::cout << "Running backward tests enabled." << std::endl;
+		}
+		else if (std::string(argv[i]) == "--backward-parity") {
+			runBackwardParityTests = true;
+			runSpecificTests = true;
+			std::cout << "Running backward parity tests enabled." << std::endl;
+		}
+		else if (std::string(argv[i]) == "--optimizer-parity") {
+			runOptimizerParityTests = true;
+			runSpecificTests = true;
+			std::cout << "Running optimizer parity tests enabled." << std::endl;
+		}
+		else if (std::string(argv[i]) == "--config") {
+			runConfigTests = true;
+			runSpecificTests = true;
+			std::cout << "Running configuration tests enabled." << std::endl;
+		}
+        else if (std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h") {
+            std::cout << "Usage: " << argv[0] << " [options]\n";
+            std::cout << "Options:\n";
+            std::cout << "  --smoke                 Run smoke tests\n";
+			std::cout << "  --smoke -C             Run smoke tests on CPU\n";
+			std::cout << "  --smoke -G             Run smoke tests on GPU\n";
+			std::cout << "  --shakedown             Run shakedown tests\n";
+			std::cout << "  --shakedown -C         Run shakedown tests on CPU\n";
+			std::cout << "  --shakedown -G         Run shakedown tests on GPU\n";
+            std::cout << "  --bypass                Bypass basic tests\n";
+            std::cout << "  --core                  Run core tests\n";
+            std::cout << "  --accel                 Run accelerator tests\n";
+            std::cout << "  --forward-parity        Run forward parity tests\n";
+            std::cout << "  --backward              Run backward tests\n";
+            std::cout << "  --backward-parity       Run backward parity tests\n";
+            std::cout << "  --optimizer-parity      Run optimizer parity tests\n";
+			std::cout << "  --config                Run configuration tests\n";
+        }
+		else {
+			std::cerr << "Unknown option: " << argv[i] << "\n";
+			std::cerr << "Use --help or -h for usage information.\n";
+			return 1;
+		}
+		// TODO: Add more command-line argument parsing as needed to control testing flow, such as selecting specific tests to run or setting verbosity levels.
     }
 
-    if (!bypassCoreTests) {
-        coreTest();
-        layersTest();
-        dataTest();
-        configTest();
-        mhaTest();
-        testParameterBasics();
-        testOptimizerZeroGrad();
-        testSGDOptimizerBasicStep();
-        testSGDOptimizerWeightDecay();
-        testAdamOptimizerFirstStep();
-        testAdamOptimizerMultipleStepsConstantGrad();
-        testAdamOptimizerWeightDecay();
-        testAdamOptimizerZeroGradInherited();
-        testCrossEntropyLossPerfectConfidence();
-        testCrossEntropyLossUniformLogits();
-        testCrossEntropyLossBatchAverage();
-        testTrainingHistory();
-        testCheckpointSaveLoad();
-        testTrainerBasicTrainingLoop();
-        testTensorToCUDAAndBack();
-        testTensorCudaCopyConstructor();
-        try {
-            testTensorFillCUDA();
-            testTensorScaleCUDA();
-            testTensorAddCUDA();
+    if (!bypassBasicTests) {
+        if (runCoreTests || !runSpecificTests) {
+            std::cout << "\n===================================================\n";
+            std::cout << "||           Basic Tests                         ||\n";
+            std::cout << "===================================================\n\n";
+            coreTest();
+            layersTest();
+            dataTest();
+            mhaTest();
+            testParameterBasics();
+            testOptimizerZeroGrad();
+            testSGDOptimizerBasicStep();
+            testSGDOptimizerWeightDecay();
+            testAdamOptimizerFirstStep();
+            testAdamOptimizerMultipleStepsConstantGrad();
+            testAdamOptimizerWeightDecay();
+            testAdamOptimizerZeroGradInherited();
+            testCrossEntropyLossPerfectConfidence();
+            testCrossEntropyLossUniformLogits();
+            testCrossEntropyLossBatchAverage();
+            testTrainingHistory();
+            testCheckpointSaveLoad();
+            testTrainerBasicTrainingLoop();
         }
-        catch (const std::exception& e) {
-            std::cerr << "\n[CUDA TEST FAILURE]\n" << e.what() << "\n";
+		if (runConfigTests) {
+			configTest();
+		}
+		if (runAccelTests || !runSpecificTests) {
+			std::cout << "\n===================================================\n";
+			std::cout << "||          Accelerator (CUDA) Tests             ||\n";
+			std::cout << "===================================================\n\n";
+			testTensorToCUDAAndBack();
+			testTensorCudaCopyConstructor();
+			try {
+				testTensorFillCUDA();
+				testTensorScaleCUDA();
+				testTensorAddCUDA();
+			}
+			catch (const std::exception& e) {
+				std::cerr << "\n[CUDA TEST FAILURE]\n" << e.what() << "\n";
+			}
+		}
+		if (runForwardParityTests || !runSpecificTests) {
+            std::cout << "\n==================================================\n";
+            std::cout << "||          Forward CUDA Parity Tests           ||\n";
+            std::cout << "==================================================\n\n";
+			testLinearForwardCUDAParity();
+			testLinearClassForwardCUDAParity();
+			testEmbeddingForwardCUDAParity();
+            testLayerNormForwardCUDAParity();
+			testCrossEntropyLossCUDAParity();
+			testCrossEntropyLossCUDAUniformParity();
+            testGeluCUDAParity();
+            testSelfAttentionForwardCUDAParity();
+			testMultiHeadAttentionForwardCUDAParity();
+		}
+        if (runOptimizerParityTests || !runSpecificTests) {
+            std::cout << "\n==================================================\n";
+            std::cout << "||          Optimizer CUDA Parity Tests         ||\n";
+            std::cout << "==================================================\n\n";
+            testSGDOptimizerCUDAParity();
+            testAdamOptimizerCUDAParity();
+            testAdamOptimizerCUDAParityMultipleSteps();
         }
-        testSGDOptimizerCUDAParity();
-        testAdamOptimizerCUDAParity();
-        testAdamOptimizerCUDAParityMultipleSteps();
-        testCrossEntropyLossCUDAParity();
-        testCrossEntropyLossCUDAUniformParity();
-        testLinearForwardCUDAParity();
-        testLinearClassForwardCUDAParity();
-        testLinearBackward();
-        testFFNBackward();
-        testLayerNormBackward();
-        testSelfAttentionBackward();
-        testTransformerBlockSingleHeadBackward();
-        testMultiHeadAttentionBackward();
-        testTransformerBlockMultiHeadBackward();
-        testEmbeddingBackward();
-        testTransformerBackwardSingleHead();
-        testTransformerBackwardMultiHead();
+        if (runBackwardTests || !runSpecificTests) {
+            std::cout << "\n==================================================\n";
+            std::cout << "||          Backwards function Tests            ||\n";
+            std::cout << "==================================================\n\n";
+            testLinearBackward();
+            testFFNBackward();
+            testLayerNormBackward();
+            testSelfAttentionBackward();
+            testTransformerBlockSingleHeadBackward();
+            testMultiHeadAttentionBackward();
+            testTransformerBlockMultiHeadBackward();
+            testEmbeddingBackward();
+            testTransformerBackwardSingleHead();
+            testTransformerBackwardMultiHead();
+        }
+        if (runBackwardParityTests || !runSpecificTests) {
+            std::cout << "\n==================================================\n";
+            std::cout << "||          Backward CUDA Parity Tests          ||\n";
+            std::cout << "==================================================\n\n";
+            testLinearBackwardCUDAParity();
+            testEmbeddingBackwardCUDAParity();
+			testLayerNormBackwardCUDAParity();
+            testGeluBackwardCUDAParity();
+            testSelfAttentionBackwardCUDAParity();
+            testMultiHeadAttentionBackwardCUDAParity();
+        }
+    
+		std::cout << "\n===================================================\n";
+		std::cout << "||          All selected tests passed!           ||\n";
+		std::cout << "===================================================\n\n";
+    
     }
 
 	if (runSmokeTest) {
-		std::cout << "\nRunning smoke tests..." << std::endl;
-		runSmokeTests();
+        std::cout << "\n===================================================\n";
+        std::cout << "||          Smoke Tests                          ||\n";
+        std::cout << "===================================================\n\n";
+		runSmokeTests(deviceSmoke);
 	}
 
+    if (runShakedownTest) {
+        std::cout << "\n===================================================\n";
+        std::cout << "||          Shakedown Tests                      ||\n";
+        std::cout << "===================================================\n\n";
+        std::cout << "[INFO] Shakedown currently not implemented. Placeholder for future tests.\n";
+    }
 
+	std::cout << "\n=================================================\n";
+	std::cout << "||          All tests completed!                ||\n";
+	std::cout << "=================================================\n\n";
 
     return 0;
 

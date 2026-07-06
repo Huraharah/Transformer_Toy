@@ -14,3 +14,15 @@ void launchLinearForward(
     size_t outFeatures,
 	bool useBias = true
 );
+
+void launchLinearBackward(
+    const float* input,
+    const float* weights,
+    const float* gradOutput,
+    float* gradInput,
+    float* gradWeights,
+    float* gradBias,
+    size_t batchSize,
+    size_t inFeatures,
+    size_t outFeatures
+);

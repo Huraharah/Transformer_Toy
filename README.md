@@ -72,13 +72,8 @@ Implemented::
 - Loss tracking over time
 
 ### Milestone 3.5 — CUDA Acceleration refactor
-Status: In progress
 
-Planned:
-- GPU Dense/Linear
-- GPU Transformer component pass
-- Trainer device config
-- CPU vs GPU parity tests
+Status: Complete
 
 Completed:
 - Refactor Tensor to be device-aware
@@ -87,8 +82,23 @@ Completed:
 - GPU SGD
 - GPU Adam
 - GPU CrossEntropyLoss
+- GPU Dense/Linear
+- GPU Transformer component pass
+- Trainer device config
+- CPU vs GPU parity tests
 
-## Milestone 4 — Architectural Experiments
+## Milestone 4 - Shakedown and final adjustments
+
+Status: In Progress
+
+Planned:
+- Epoch Callback
+- Learning Rate Scheduler
+- Early Stopping
+- Patience
+- CUDA optimizations
+
+## Milestone 5 — Architectural Experiments
 
 Planned:
 - Deep FFN mixer
@@ -99,7 +109,7 @@ Planned:
 - Single-head vs multi-head comparisons
 - Mixed attention-depth experiments
 
-## Milestone 5 — Task Adapters
+## Milestone 6 — Task Adapters
 
 Planned:
 - Text generation task
@@ -108,7 +118,7 @@ Planned:
 - Graphormer-lite for graph tasks
 - Possible image recognition adapter
 
-## Milestone 6 — Research Evaluation
+## Milestone 7 — Research Evaluation
 
 Planned:
 - Compare architectures across task types
