@@ -104,3 +104,11 @@ void AdamOptimizer::step(std::vector<Parameter*>& parameters) {
 float AdamOptimizer::getLearningRate() const {
 	return learningRate;
 }
+
+void AdamOptimizer::setLearningRate(float learningRate_) {
+    if (learningRate_ <= 0.0f) {
+        throw std::invalid_argument("Learning rate must be > 0.");
+    }
+
+    learningRate = learningRate_;
+}

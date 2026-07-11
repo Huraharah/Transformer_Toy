@@ -61,3 +61,11 @@ void SGDOptimizer::step(std::vector<Parameter*>& parameters) {
 float SGDOptimizer::getLearningRate() const {
 	return learningRate;
 }   
+
+void SGDOptimizer::setLearningRate(float learningRate_) {
+    if (learningRate_ <= 0.0f) {
+        throw std::invalid_argument("Learning rate must be > 0.");
+    }
+
+    learningRate = learningRate_;
+}

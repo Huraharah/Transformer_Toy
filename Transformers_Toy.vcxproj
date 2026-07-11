@@ -46,23 +46,33 @@
     <ClInclude Include="include\layers\linear.h" />
     <ClInclude Include="include\layers\transformer_block.h" />
     <ClInclude Include="include\model\transformer.h" />
-    <ClInclude Include="include\tests\SmokeTests.h">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    <ClInclude Include="include\tests\shakedown_test.h" />
+    <ClInclude Include="include\tests\smoke_test.h">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ExcludedFromBuild>
     </ClInclude>
     <ClInclude Include="include\training\adam_optimizer.h" />
+    <ClInclude Include="include\training\best_checkpoint_callback.h" />
     <ClInclude Include="include\training\checkpoint.h" />
+    <ClInclude Include="include\training\checkpoint_callback.h" />
+    <ClInclude Include="include\training\generation_callback.h" />
+    <ClInclude Include="include\training\training_session.h" />
     <ClInclude Include="include\training\cross_entropy_loss.h" />
+    <ClInclude Include="include\training\early_stopping_callback.h" />
+    <ClInclude Include="include\training\epoch_callback.h" />
+    <ClInclude Include="include\training\learning_rate_scheduler_callback.h" />
     <ClInclude Include="include\training\loss.h" />
     <ClInclude Include="include\training\optimizer.h" />
     <ClInclude Include="include\training\sgd_optimizer.h" />
     <ClInclude Include="include\training\trainer.h" />
     <ClInclude Include="include\training\training_config.h" />
     <ClInclude Include="include\training\training_history.h" />
+    <ClInclude Include="include\tests\best_model_generation_tests.h" />
+    <ClCompile Include="src\tests\run_best_model_generation_tests.cpp" />
+    <ClCompile Include="src\training\checkpoint_callback.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="main.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
-    </ClCompile>
+    <ClCompile Include="src\tests\shakedown_test.cpp" />
+    <ClCompile Include="src\training\best_checkpoint_callback.cpp" />
     <ClCompile Include="src\core\cuda_utils.cpp" />
     <ClCompile Include="src\core\layer.cpp" />
     <ClCompile Include="src\core\layer_utils.cpp" />
@@ -88,31 +98,32 @@
     <ClCompile Include="src\layers\linear.cpp" />
     <ClCompile Include="src\layers\transformer_block.cpp" />
     <ClCompile Include="src\model\transformer.cpp" />
-    <ClCompile Include="src\tests\SmokeTests.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    <ClCompile Include="src\tests\smoke_test.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="src\training\checkpoint.cpp" />
+    <ClCompile Include="src\training\early_stopping_callback.cpp" />
+    <ClCompile Include="src\training\generation_callback.cpp" />
+    <ClCompile Include="src\training\learning_rate_scheduler_callback.cpp" />
+    <ClCompile Include="src\training\training_session.cpp" />
     <ClCompile Include="test_main.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ExcludedFromBuild>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="src\kernels\reduction_kernels.cu" />
-    <CudaCompile Include="src\training\adam_optimizer.cpp">
+    <ClCompile Include="src\training\adam_optimizer.cpp">
       <FileType>Document</FileType>
-    </CudaCompile>
-    <CudaCompile Include="src\training\cross_entropy_loss.cpp">
+    </ClCompile>
+    <ClCompile Include="src\training\cross_entropy_loss.cpp">
       <FileType>Document</FileType>
-    </CudaCompile>
-    <CudaCompile Include="src\training\sgd_optimizer.cpp">
+    </ClCompile>
+    <ClCompile Include="src\training\sgd_optimizer.cpp">
       <FileType>Document</FileType>
-    </CudaCompile>
-    <CudaCompile Include="src\training\trainer.cpp">
+    </ClCompile>
+    <ClCompile Include="src\training\trainer.cpp">
       <FileType>Document</FileType>
-    </CudaCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <Text Include="data\shakespeare.txt" />
+    </ClCompile>
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
@@ -202,7 +213,7 @@
       <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -221,11 +232,15 @@
       <PreprocessorDefinitions>NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <SubSystem>Windows</SubSystem>
+      <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <CudaCompile>
+      <CodeGeneration>compute_89,sm_89</CodeGeneration>
+    </CudaCompile>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

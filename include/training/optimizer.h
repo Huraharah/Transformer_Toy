@@ -10,6 +10,9 @@ public:
 
     virtual void step(std::vector<Parameter*>& parameters) = 0;
 
+    virtual float getLearningRate() const = 0;
+    virtual void setLearningRate(float learningRate) = 0;
+
     virtual void zeroGrad(std::vector<Parameter*>& parameters) {
         for (Parameter* param : parameters) {
             if (param && param->requires_grad) {

@@ -7,6 +7,7 @@
 #include "training/optimizer.h"
 #include "training/training_config.h"
 #include "training/training_history.h"
+#include "training/epoch_callback.h"
 
 #include <vector>
 
@@ -34,6 +35,8 @@ private:
 
     Device activeDevice = resolveDevice(config.device);
 
+    std::vector<EpochCallback*> callbacks;
+
     int globalStep = 0;
 
 public:
@@ -53,4 +56,7 @@ public:
     );
 
     float evaluate(const std::vector<TrainingBatch>& validationBatches);
+
+    void addCallback(EpochCallback* callback);
+    void clearCallbacks();
 };

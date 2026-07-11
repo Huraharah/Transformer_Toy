@@ -1,23 +1,62 @@
 #pragma once
 #include "core/tensor.h"
+#include "layers/config.h"
+#include "training/learning_rate_scheduler_callback.h"
 
 #include <string>
 
-
 struct TrainingConfig {
-    int epochs = 1;
-    int batchSize = 1;
 
-    float learningRate = 0.001f;
+    //-------------------------
+    // Core Training
+    //-------------------------
 
-    int logEverySteps = 10;
-    int checkpointEveryEpochs = 1;
+    int epochs;
+    int batchSize;
+    Device device;
 
-    bool useValidation = false;
-    bool shuffle = true;
+    //-------------------------
+    // Logging
+    //-------------------------
 
-    Device device = Device::AUTO;
+    int logEverySteps;
+    std::string runName;
 
-    std::string checkpointDirectory = "checkpoints";
-    std::string runName = "default_run";
+    //-------------------------
+    // Checkpointing
+    //-------------------------
+
+    bool enableCheckpointing;
+    bool enableBestCheckpoint;
+    int checkpointEveryEpochs;
+    float bestCheckpointMinDelta;
+    std::string checkpointDirectory;
+
+    //-------------------------
+    // Early Stopping
+    //-------------------------
+
+    bool enableEarlyStopping;
+    int earlyStoppingPatience;
+    float earlyStoppingMinDelta;
+    bool preferValidationLoss;
+
+    //-------------------------
+    // Learning Rate Scheduler
+    //-------------------------
+
+    bool enableLRScheduler;
+    LearningRateSchedule lrSchedule;
+    int lrStepSize;
+    float lrGamma;
+    float minimumLearningRate;
+
+    //-------------------------
+    // Generation Snapshots
+    //-------------------------
+
+    bool enableGenerationSnapshots;
+    int generationEveryEpochs;
+    GenerationConfig generationConfig;
+    std::string generationPrompt;
 };

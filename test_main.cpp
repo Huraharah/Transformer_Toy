@@ -19,10 +19,16 @@
 #include "training/training_history.h"
 #include "training/checkpoint.h"
 #include "training/trainer.h"
+#include "training/checkpoint_callback.h"
+#include "training/best_checkpoint_callback.h"
+#include "training/early_stopping_callback.h"
+#include "training/generation_callback.h"
+#include <tests/best_model_generation_tests.h>
 #include "kernels/tensor_ops_kernels.cuh"
 #include "kernels/linear_kernels.cuh"
 #include "kernels/activation_kernels.cuh"
-#include "tests/SmokeTests.h"
+#include "tests/smoke_test.h"
+#include "tests/shakedown_test.h"
 
 #include <iostream>
 #include <vector>
@@ -1245,6 +1251,7 @@ void testTrainerBasicTrainingLoop() {
     config.checkpointEveryEpochs = 1;
     config.checkpointDirectory = ".";
     config.runName = "trainer_test";
+    config.device = Device::CPU;
 
     Tensor inputs({ 1 }, 0.0f);
 
@@ -2766,6 +2773,270 @@ void testMultiHeadAttentionBackwardCUDAParity() {
     std::cout << "[PASS] MultiHeadAttention backward CUDA parity\n";
 }
 
+void testEpochCallback() {
+    DummyTrainableModel model;
+    CrossEntropyLoss loss;
+    SGDOptimizer optimizer(0.1f);
+
+    TrainingConfig config;
+    config.epochs = 2;
+    config.logEverySteps = 1;
+    config.checkpointEveryEpochs = 1;
+    config.checkpointDirectory = ".";
+    config.runName = "epoch_callback";
+
+    CheckpointCallback callback(config.checkpointDirectory, config.checkpointEveryEpochs);
+
+    Tensor inputs({ 1, 1 }, 0.0f);
+
+    Tensor targets({ 1 });
+    targets[0] = 2.0f;
+
+    TrainingBatch batch;
+    batch.inputs = inputs;
+    batch.targets = targets;
+
+    std::vector<TrainingBatch> trainBatches = { batch };
+
+    Trainer trainer(model, loss, optimizer, config);
+
+    trainer.addCallback(&callback);
+
+    trainer.train(trainBatches);
+
+    const TrainingHistory& history = trainer.getHistory();
+
+    assert(history.trainLosses.size() == 2);
+
+    assert(history.trainLosses[1] < history.trainLosses[0]);
+
+    std::cout << "[PASS] Epoch Callback\n";
+}
+
+void testBestCheckpointCallback() {
+    DummyTrainableModel model;
+    CrossEntropyLoss loss;
+    SGDOptimizer optimizer(0.1f);
+
+    TrainingConfig config;
+    config.epochs = 3;
+    config.logEverySteps = 1;
+    config.checkpointDirectory = ".";
+    config.runName = "best_checkpoint_test";
+    config.device = Device::CPU;
+
+    Tensor inputs({ 1, 1 }, 0.0f);
+
+    Tensor targets({ 1 });
+    targets[0] = 2.0f;
+
+    TrainingBatch batch;
+    batch.inputs = inputs;
+    batch.targets = targets;
+
+    std::vector<TrainingBatch> trainBatches = { batch };
+
+    Trainer trainer(model, loss, optimizer, config);
+
+    BestCheckpointCallback bestCallback(
+        config.checkpointDirectory,
+        0.0f,
+        false
+    );
+
+    trainer.addCallback(&bestCallback);
+
+    trainer.train(trainBatches);
+
+    assert(bestCallback.hasBestCheckpoint());
+    assert(bestCallback.getBestEpoch() == 3);
+    assert(bestCallback.getBestMetric() == trainer.getHistory().trainLosses.back());
+
+    std::vector<Parameter*> params = model.parameters();
+
+    params[0]->value[0] = 999.0f;
+    params[0]->value[1] = 999.0f;
+    params[0]->value[2] = -999.0f;
+
+    CheckpointMetadata metadata;
+    TrainingHistory loadedHistory;
+
+    Checkpoint::load(
+        bestCallback.getBestCheckpointPath(),
+        params,
+        metadata,
+        loadedHistory
+    );
+
+    assert(metadata.epoch == 3);
+    assert(metadata.runName == config.runName);
+
+    assert(params[0]->value[2] > 0.0f);
+    assert(params[0]->value[0] < 0.0f);
+    assert(params[0]->value[1] < 0.0f);
+
+    assert(loadedHistory.trainLosses.size() == 3);
+
+    std::cout << "[PASS] BestCheckpointCallback\n";
+}
+
+void testEarlyStoppingCallback() {
+    DummyTrainableModel model;
+    CrossEntropyLoss loss;
+    SGDOptimizer optimizer(0.000001f);
+
+    TrainingConfig config;
+    config.epochs = 10;
+    config.logEverySteps = 0;
+    config.checkpointDirectory = ".";
+    config.runName = "early_stopping_test";
+    config.device = Device::CPU;
+
+    Tensor inputs({ 1, 1 }, 0.0f);
+
+    Tensor targets({ 1 });
+    targets[0] = 2.0f;
+
+    TrainingBatch batch;
+    batch.inputs = inputs;
+    batch.targets = targets;
+
+    std::vector<TrainingBatch> trainBatches = { batch };
+
+    Trainer trainer(model, loss, optimizer, config);
+
+    EarlyStoppingCallback earlyStop(
+        2,       // patience
+        100.0f,  // huge minDelta means only epoch 1 counts as improvement
+        false    // use training loss
+    );
+
+    trainer.addCallback(&earlyStop);
+
+    trainer.train(trainBatches);
+
+    const TrainingHistory& history = trainer.getHistory();
+
+    assert(earlyStop.shouldStopTraining());
+    assert(earlyStop.hasBestMetric());
+    assert(earlyStop.getBestEpoch() == 1);
+    assert(earlyStop.getEpochsWithoutImprovement() == 2);
+
+    // epoch 1 = improvement, epochs 2 and 3 = bad epochs, then stop
+    assert(history.trainLosses.size() == 3);
+
+    std::cout << "[PASS] EarlyStoppingCallback\n";
+}
+
+void testGenerationCallback() {
+    CharTokenizer tokenizer;
+    tokenizer.buildFromText("abc abc");
+
+    Random modelRng(42);
+
+    Transformer model(
+        tokenizer.vocabSize(),
+        4,  // context length
+        4,  // embedding dimension
+        8,  // FFN hidden dimension
+        1,  // transformer block
+        modelRng
+    );
+
+    SGDOptimizer optimizer(0.1f);
+    TrainingHistory history;
+
+    GenerationConfig generationConfig(
+        3,      // maxNewTokens
+        1.0f,   // temperature
+        2,      // topK
+        false,  // greedy sampling
+        false,  // print generated text from config
+        false,  // print token IDs
+        123     // random seed
+    );
+
+    GenerationCallback callback(
+        tokenizer,
+        "a",
+        generationConfig,
+        2,      // generate every 2 epochs
+        false,  // suppress callback output during test
+        123
+    );
+
+    EpochContext context;
+    context.totalEpochs = 4;
+    context.globalStep = 1;
+    context.trainLoss = 1.0f;
+    context.hasValidationLoss = false;
+    context.device = Device::CPU;
+    context.runName = "generation_callback_test";
+
+    // Epoch 1 should be skipped.
+    context.epoch = 1;
+
+    callback.onEpochEnd(
+        context,
+        model,
+        optimizer,
+        history
+    );
+
+    assert(callback.getSnapshots().empty());
+
+    // Epoch 2 should create a snapshot.
+    context.epoch = 2;
+
+    callback.onEpochEnd(
+        context,
+        model,
+        optimizer,
+        history
+    );
+
+    assert(callback.getSnapshots().size() == 1);
+
+    const GenerationSnapshot& firstSnapshot =
+        callback.getLatestSnapshot();
+
+    assert(firstSnapshot.epoch == 2);
+
+    // Prompt length 1 + 3 generated characters.
+    assert(firstSnapshot.text.size() == 4);
+    assert(firstSnapshot.text[0] == 'a');
+
+    // Epoch 3 should be skipped.
+    context.epoch = 3;
+
+    callback.onEpochEnd(
+        context,
+        model,
+        optimizer,
+        history
+    );
+
+    assert(callback.getSnapshots().size() == 1);
+
+    // Epoch 4 should produce a second snapshot.
+    context.epoch = 4;
+
+    callback.onEpochEnd(
+        context,
+        model,
+        optimizer,
+        history
+    );
+
+    assert(callback.getSnapshots().size() == 2);
+    assert(callback.getLatestSnapshot().epoch == 4);
+
+    callback.clearSnapshots();
+    assert(callback.getSnapshots().empty());
+
+    std::cout << "[PASS] GenerationCallback\n";
+}
+
 /*
 _______________________________________________________________________________________________________________________________________________________________
 Add more test functions as needed
@@ -2775,6 +3046,8 @@ Add more test functions as needed
 int main(int argc, char** argv) {
     std::cout << "Transformer_Toy build OK\n" << std::endl;
 	std::cout << "validating arguments..." << std::endl;
+    std::cout << std::unitbuf;
+    std::cerr << std::unitbuf;
 
     bool runSmokeTest = false;
 	Device deviceSmoke = Device::AUTO;
@@ -2789,17 +3062,19 @@ int main(int argc, char** argv) {
 	bool runBackwardParityTests = false;
 	bool runOptimizerParityTests = false;
 	bool runConfigTests = false;
+    bool runCheckpointTests = false;
+    bool runGenerationTests = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "--smoke") {
             runSmokeTest = true;
             std::cout << "Running smoke tests enabled." << std::endl;
-            if (std::string(argv[i + 1]) == "-C") {
+            if (std::string(argv[i + 1]) == "-C" || std::string(argv[i + 1]) == "-c") {
 				deviceSmoke = Device::CPU;
 				std::cout << "Device set to CPU." << std::endl;
                 i++; // Skip the next argument since it's the device flag
 			}
-			else if (std::string(argv[i + 1]) == "-G") {
+			else if (std::string(argv[i + 1]) == "-G" || std::string(argv[i + 1]) == "-g") {
 				deviceSmoke = Device::CUDA;
 				std::cout << "Device set to CUDA." << std::endl;
 				i++; // Skip the next argument since it's the device flag
@@ -2808,12 +3083,12 @@ int main(int argc, char** argv) {
 		else if (std::string(argv[i]) == "--shakedown") {
 			runShakedownTest = true;
 			std::cout << "Running shakedown tests enabled." << std::endl;
-			if (std::string(argv[i + 1]) == "-C") {
+			if (std::string(argv[i + 1]) == "-C" || std::string(argv[i + 1]) == "-c") {
 				deviceShakedown = Device::CPU;
 				std::cout << "Device set to CPU." << std::endl;
                 i++; // Skip the next argument since it's the device flag
 			}
-			else if (std::string(argv[i + 1]) == "-G") {
+			else if (std::string(argv[i + 1]) == "-G" || std::string(argv[i + 1]) == "-g") {
 				deviceShakedown = Device::CUDA;
 				std::cout << "Device set to CUDA." << std::endl;
                 i++; // Skip the next argument since it's the device flag
@@ -2858,15 +3133,24 @@ int main(int argc, char** argv) {
 			runSpecificTests = true;
 			std::cout << "Running configuration tests enabled." << std::endl;
 		}
+        else if (std::string(argv[i]) == "--checkpoint") {
+            runCheckpointTests = true;
+            runSpecificTests = true;
+            std::cout << "Running checkpointing tests enabled." << std::endl;
+        }
+        else if (std::string(argv[i]) == "--generate-best") {
+            runGenerationTests = true;
+            std::cout << "Best-checkpoint generation tests enabled." << std::endl;
+        }
         else if (std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h") {
             std::cout << "Usage: " << argv[0] << " [options]\n";
             std::cout << "Options:\n";
             std::cout << "  --smoke                 Run smoke tests\n";
-			std::cout << "  --smoke -C             Run smoke tests on CPU\n";
-			std::cout << "  --smoke -G             Run smoke tests on GPU\n";
+			std::cout << "  --smoke -C/-c           Run smoke tests on CPU\n";
+			std::cout << "  --smoke -G/-g           Run smoke tests on GPU\n";
 			std::cout << "  --shakedown             Run shakedown tests\n";
-			std::cout << "  --shakedown -C         Run shakedown tests on CPU\n";
-			std::cout << "  --shakedown -G         Run shakedown tests on GPU\n";
+			std::cout << "  --shakedown -C/-c       Run shakedown tests on CPU\n";
+			std::cout << "  --shakedown -G/-g       Run shakedown tests on GPU\n";
             std::cout << "  --bypass                Bypass basic tests\n";
             std::cout << "  --core                  Run core tests\n";
             std::cout << "  --accel                 Run accelerator tests\n";
@@ -2875,6 +3159,8 @@ int main(int argc, char** argv) {
             std::cout << "  --backward-parity       Run backward parity tests\n";
             std::cout << "  --optimizer-parity      Run optimizer parity tests\n";
 			std::cout << "  --config                Run configuration tests\n";
+            std::cout << "  --checkpoint            Run checkpointing tests\n";
+            std::cout << "  --generate-best         Load best checkpoint and run generation suite\n";
         }
 		else {
 			std::cerr << "Unknown option: " << argv[i] << "\n";
@@ -2974,6 +3260,15 @@ int main(int argc, char** argv) {
             testSelfAttentionBackwardCUDAParity();
             testMultiHeadAttentionBackwardCUDAParity();
         }
+        if (runCheckpointTests || !runSpecificTests) {
+            std::cout << "\n==================================================\n";
+            std::cout << "||            Epoch Checkpoint Tests            ||\n";
+            std::cout << "==================================================\n\n";
+            testEpochCallback();
+            testBestCheckpointCallback();
+            testEarlyStoppingCallback();
+            testGenerationCallback();
+        }
     
 		std::cout << "\n===================================================\n";
 		std::cout << "||          All selected tests passed!           ||\n";
@@ -2989,10 +3284,30 @@ int main(int argc, char** argv) {
 	}
 
     if (runShakedownTest) {
-        std::cout << "\n===================================================\n";
-        std::cout << "||          Shakedown Tests                      ||\n";
-        std::cout << "===================================================\n\n";
-        std::cout << "[INFO] Shakedown currently not implemented. Placeholder for future tests.\n";
+        std::cout << "\n===================================================\n"
+         << "||          Shakedown Tests                      ||\n"
+         << "===================================================\n\n"
+         << std::flush;
+        
+        runShakedownTests(deviceShakedown);
+    }
+
+    if (runGenerationTests) {
+        std::cout << "\n==================================================\n"
+            << "||          Generation Tests                   ||\n"
+            << "=================================================\n" << std::flush;
+
+        try {
+            runBestModelGenerationTests();
+        }
+        catch (const std::exception& e) {
+            std::cerr
+                << "\n[BEST MODEL GENERATION FAILURE]\n"
+                << e.what()
+                << "\n";
+
+            return 1;
+        }
     }
 
 	std::cout << "\n=================================================\n";

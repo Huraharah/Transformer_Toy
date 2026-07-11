@@ -1,11 +1,10 @@
-#include "tests/SmokeTests.h"
-
+#include "tests/smoke_test.h"
 #include "training/training_config.h"
 #include "core/tensor.h"
 #include "core/cuda_utils.h"
 #include "data/dataset.h"
 #include "core/random.h"
-#include "training/trainer.h"
+#include "training/training_session.h"
 #include "layers/config.h"
 #include "model/transformer.h"
 #include "training/cross_entropy_loss.h"
@@ -17,6 +16,7 @@
 #include <sstream>
 #include <cmath>
 #include <iomanip>
+#include <filesystem>
 
 namespace {
 
@@ -61,11 +61,50 @@ namespace {
         config.epochs = 10;
         config.batchSize = 16;
         config.logEverySteps = 20;
-        config.checkpointEveryEpochs = 0;
+
         config.runName = device == Device::CUDA
             ? "tiny_shakespeare_cuda_smoke"
             : "tiny_shakespeare_cpu_smoke";
-        config.checkpointDirectory = ".";
+
+        config.checkpointDirectory = "./smoke_checkpoints";
+
+        // Periodic checkpoint
+        config.enableCheckpointing = true;
+        config.checkpointEveryEpochs = 5;
+
+        // Best checkpoint
+        config.enableBestCheckpoint = true;
+        config.bestCheckpointMinDelta = 0.0f;
+
+        // Validation metric
+        config.preferValidationLoss = true;
+
+        // Early stopping
+        config.enableEarlyStopping = true;
+        config.earlyStoppingPatience = 20;
+        config.earlyStoppingMinDelta = 0.0f;
+
+        // Scheduler
+        config.enableLRScheduler = true;
+        config.lrSchedule = LearningRateSchedule::StepDecay;
+        config.lrStepSize = 5;
+        config.lrGamma = 0.5f;
+        config.minimumLearningRate = 1.0e-6f;
+
+        // Generation snapshots
+        config.enableGenerationSnapshots = true;
+        config.generationEveryEpochs = 2;
+        config.generationPrompt = "To be";
+
+        config.generationConfig = GenerationConfig(
+            40,     // maxNewTokens
+            1.0f,   // temperature
+            10,     // topK
+            false,
+            false,
+            false,
+            123
+        );
 
         constexpr size_t contextLength = 64;
         constexpr size_t batchSize = 16;
@@ -83,6 +122,10 @@ namespace {
         constexpr int dModel = 64;
         constexpr int dFF = 32;
         constexpr int numLayers = 2;
+
+        std::filesystem::create_directories(
+            config.checkpointDirectory
+        );
 
         TransformerBlockConfig blockConfig;
         blockConfig.d_model = dModel;
@@ -135,27 +178,163 @@ namespace {
             trainBatches.push_back({ batchInputs, batchTargets });
         }
 
+        std::vector<TrainingBatch> validationBatches;
+
+        for (size_t i = 0; i < 4; ++i) {
+            Tensor batchInputs;
+            Tensor batchTargets;
+
+            dataset.getBatch(
+                batchSize,
+                rng,
+                batchInputs,
+                batchTargets
+            );
+
+            validationBatches.push_back({
+                batchInputs,
+                batchTargets
+                });
+        }
+
         CrossEntropyLoss loss;
         AdamOptimizer optimizer(0.001f);
 
-        Trainer trainer(model, loss, optimizer, config);
-        trainer.train(trainBatches);
+        float initialLearningRate =
+            optimizer.getLearningRate();
 
         std::cout << "[PASS] Smoke test scaffold completed for "
             << (device == Device::CUDA ? "CUDA" : "CPU")
             << "\n";
 
-        const TrainingHistory& history = trainer.getHistory();
+        std::cout << "[DEBUG] Constructing session..." << std::endl;
+
+        TrainingSession session(
+            model,
+            loss,
+            optimizer,
+            config,
+            &dataset.tokenizer()
+        );
+
+        std::cout << "[DEBUG] TrainingSession constructed." << std::endl;
+        std::cout << "[DEBUG] Entering session.train()..." << std::endl;
+
+        session.train(
+            trainBatches,
+            &validationBatches
+        );
+
+        std::cout << "[DEBUG] session.train() returned." << std::endl;
+
+        const TrainingHistory& history =
+            session.getHistory();
+
+        const size_t expectedMaximumTrainLosses =
+            static_cast<size_t>(config.epochs) *
+            trainBatches.size();
 
         if (history.trainLosses.empty()) {
-            throw std::runtime_error("Smoke test produced no training losses.");
+            throw std::runtime_error(
+                "Smoke test produced no training losses."
+            );
+        }
+
+        if (history.trainLosses.size() > expectedMaximumTrainLosses) {
+            throw std::runtime_error(
+                "Smoke test produced too many training-history entries."
+            );
+        }
+
+        if (history.validationLosses.empty()) {
+            throw std::runtime_error(
+                "Smoke test produced no validation losses."
+            );
         }
 
         for (float value : history.trainLosses) {
             if (!std::isfinite(value)) {
-                throw std::runtime_error("Smoke test produced non-finite loss.");
+                throw std::runtime_error(
+                    "Smoke test produced non-finite training loss."
+                );
             }
         }
+
+        for (float value : history.validationLosses) {
+            if (!std::isfinite(value)) {
+                throw std::runtime_error(
+                    "Smoke test produced non-finite validation loss."
+                );
+            }
+        }
+
+        const std::string bestCheckpointPath =
+            config.checkpointDirectory + "/" +
+            config.runName +
+            "_best.bin";
+
+        if (!std::filesystem::exists(bestCheckpointPath)) {
+            throw std::runtime_error(
+                "Smoke test did not create a best checkpoint."
+            );
+        }
+
+        const std::string periodicCheckpointPath =
+            config.checkpointDirectory + "/" +
+            config.runName +
+            "_epoch_5.bin";
+
+        if (!std::filesystem::exists(periodicCheckpointPath)) {
+            throw std::runtime_error(
+                "Smoke test did not create the expected periodic checkpoint."
+            );
+        }
+
+        float finalLearningRate =
+            optimizer.getLearningRate();
+
+        if (!(finalLearningRate < initialLearningRate)) {
+            throw std::runtime_error(
+                "Learning-rate scheduler did not reduce the learning rate."
+            );
+        }
+
+        const GenerationCallback* generationCallback =
+            session.getGenerationCallback();
+
+        if (!generationCallback) {
+            throw std::runtime_error(
+                "Generation callback was not created."
+            );
+        }
+
+        const auto& snapshots =
+            generationCallback->getSnapshots();
+
+        if (snapshots.empty()) {
+            throw std::runtime_error(
+                "Generation callback produced no snapshots."
+            );
+        }
+
+        for (const GenerationSnapshot& snapshot : snapshots) {
+            if (snapshot.text.empty()) {
+                throw std::runtime_error(
+                    "Generation callback produced an empty snapshot."
+                );
+            }
+        }
+
+        const GenerationSnapshot& latest =
+            generationCallback->getLatestSnapshot();
+
+        std::cout
+            << "====================================================\n"
+            << "||            Latest Generation Snapshot          ||\n"
+            << "====================================================\n"
+            << "Epoch: " << latest.epoch << "\n"
+            << latest.text << "\n"
+            << "---------------------------------------------------\n";
 
         float improvement =
             100.0f *
@@ -185,10 +364,38 @@ namespace {
 			<< "---------------------------------------------------\n"
 			<< "Generated sample:\n";
 
-        std::string generatedSample = runGenerationSmokeCheck(model, dataset, rng);
+        std::vector<Parameter*> modelParameters =
+            model.parameters();
 
-		std::cout << generatedSample << "\n"
-			<< "---------------------------------------------------\n";
+        if (device == Device::CUDA) {
+            for (Parameter* parameter : modelParameters) {
+                if (!parameter) {
+                    continue;
+                }
+
+                parameter->value.toCPU();
+                parameter->grad.toCPU();
+            }
+        }
+
+        std::string generatedSample =
+            runGenerationSmokeCheck(model, dataset, rng);
+
+        std::cout
+            << generatedSample
+            << "\n"
+            << "---------------------------------------------------\n";
+
+        if (device == Device::CUDA) {
+            for (Parameter* parameter : modelParameters) {
+                if (!parameter) {
+                    continue;
+                }
+
+                parameter->value.toCUDA();
+                parameter->grad.toCUDA();
+            }
+        }
 
         std::cout << std::setprecision(6);
 
