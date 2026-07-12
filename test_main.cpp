@@ -23,7 +23,7 @@
 #include "training/best_checkpoint_callback.h"
 #include "training/early_stopping_callback.h"
 #include "training/generation_callback.h"
-#include <tests/best_model_generation_tests.h>
+#include "tests/best_model_generation_tests.h"
 #include "kernels/tensor_ops_kernels.cuh"
 #include "kernels/linear_kernels.cuh"
 #include "kernels/activation_kernels.cuh"
@@ -3064,6 +3064,7 @@ int main(int argc, char** argv) {
 	bool runConfigTests = false;
     bool runCheckpointTests = false;
     bool runGenerationTests = false;
+    bool runGenerationFineTune = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "--smoke") {
@@ -3141,6 +3142,10 @@ int main(int argc, char** argv) {
         else if (std::string(argv[i]) == "--generate-best") {
             runGenerationTests = true;
             std::cout << "Best-checkpoint generation tests enabled." << std::endl;
+        }
+        else if (std::string(argv[i]) == "--fine-tune") {
+            runGenerationFineTune = true;
+            std::cout << "Best Checkpoint generation fine tune enabled." << std::endl;
         }
         else if (std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h") {
             std::cout << "Usage: " << argv[0] << " [options]\n";
@@ -3308,6 +3313,13 @@ int main(int argc, char** argv) {
 
             return 1;
         }
+    }
+
+    if (runGenerationFineTune) {
+        std::cout << "\n==================================================\n"
+            << "||          Generation Fine Tune                 ||\n"
+            << "===================================================\n" << std::flush;
+        runNarrowBandGenerationTests();
     }
 
 	std::cout << "\n=================================================\n";
