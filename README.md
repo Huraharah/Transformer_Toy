@@ -89,14 +89,27 @@ Completed:
 
 ## Milestone 4 - Shakedown and final adjustments
 
-Status: In Progress
+Status: Complete
 
-Planned:
+Completed:
 - Epoch Callback
 - Learning Rate Scheduler
 - Early Stopping
 - Patience
 - CUDA optimizations
+
+## Milestone 4.5 - Tokenization updates, optimizations
+
+Planned:
+- Include other tokenization options (BPE, subword, word)
+- Perform optimization pass (both CUDA and CPU optimizations for using more of available resources)
+	- tokens/sec on CPU and CUDA
+	- average step time
+	- GPU utilization
+	- peak VRAM
+	- host-to-device transfer volume
+	- validation loss per wall-clock hour
+- Full transformer build on full Shakespeare corpus
 
 ## Milestone 5 — Architectural Experiments
 
