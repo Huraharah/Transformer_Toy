@@ -101,7 +101,7 @@ void launchEmbeddingForward(
         );
 
     CUDA_CHECK(cudaGetLastError());
-    cudaSync();
+    
 }
 
 void launchEmbeddingBackward(
@@ -133,5 +133,5 @@ void launchEmbeddingBackward(
         );
 
     CUDA_CHECK(cudaGetLastError());
-    cudaSync();
+    
 }

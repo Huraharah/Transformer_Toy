@@ -145,7 +145,7 @@ void launchLayerNormForward(
         );
 
     CUDA_CHECK(cudaGetLastError());
-    cudaSync();
+    
 }
 
 void launchLayerNormBackward(
@@ -183,5 +183,5 @@ void launchLayerNormBackward(
         );
 
     CUDA_CHECK(cudaGetLastError());
-    cudaSync();
+    
 }

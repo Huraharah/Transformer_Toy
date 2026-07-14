@@ -129,7 +129,7 @@ void Transformer::backward(const Tensor& gradOutput) {
 
 std::string Transformer::generate(
     const std::string& prompt,
-    const CharTokenizer& tokenizer,
+    const Tokenizer& tokenizer,
     size_t maxNewTokens,
     float temperature,
     size_t topK,
@@ -143,7 +143,7 @@ std::string Transformer::generate(
         topK = vocabSize_;
     }
 
-    std::vector<size_t> tokenIds = tokenizer.encode(prompt);
+    std::vector<int> tokenIds = tokenizer.encode(prompt);
 
     for (size_t step = 0; step < maxNewTokens; ++step) {
         size_t start = 0;
@@ -216,7 +216,7 @@ std::string Transformer::generate(
 
 std::string Transformer::generate(
     const std::string& prompt,
-    const CharTokenizer& tokenizer,
+    const Tokenizer& tokenizer,
     const GenerationConfig& config,
     Random& rng
 ) {

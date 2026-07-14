@@ -3,6 +3,7 @@
 #include "core/cuda_utils.h"
 
 #include <stdexcept>
+#include <iostream>
 
 namespace kernels {
 
@@ -112,11 +113,12 @@ void launchCrossEntropyForwardBackwardKernel(
         return;
     }
 
-    if (numClasses > 4096) {
-        throw std::invalid_argument(
-            "Current CUDA CrossEntropyLoss kernel supports numClasses <= 4096."
-        );
-    }
+    //if (numClasses > 4096) {
+    //    std::cout << "[ERROR] Throwing invalid argument error for numClasses <= 4096" << std::endl;
+    //    throw std::invalid_argument(
+    //        "Current CUDA CrossEntropyLoss kernel supports numClasses <= 4096."
+    //    );
+    //}
 
     int threads = 256;
 
@@ -138,7 +140,9 @@ void launchCrossEntropyForwardBackwardKernel(
     int blocks = static_cast<int>(batchSize);
     size_t sharedBytes = sizeof(float) * threads;
 
-    kernels::crossEntropyForwardBackwardKernel << <blocks, threads, sharedBytes >> > (
+    //std::cout << "[DEBUG] Launching loss kernel..." << std::endl;
+
+    kernels::crossEntropyForwardBackwardKernel<<<blocks, threads, sharedBytes>>> (
         logits,
         targets,
         grad,
@@ -148,5 +152,5 @@ void launchCrossEntropyForwardBackwardKernel(
         );
 
     CUDA_CHECK(cudaGetLastError());
-    cudaSync();
+    
 }

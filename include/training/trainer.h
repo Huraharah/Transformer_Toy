@@ -8,6 +8,7 @@
 #include "training/training_config.h"
 #include "training/training_history.h"
 #include "training/epoch_callback.h"
+#include "training/training_profiler.h"
 
 #include <vector>
 
@@ -32,8 +33,10 @@ private:
     Loss& lossFunction;
     Optimizer& optimizer;
     TrainingHistory history;
+    TrainingProfiler profiler_;
 
     Device activeDevice = resolveDevice(config.device);
+    void synchronizeProfilePhase(Device activeDevice) const;
 
     std::vector<EpochCallback*> callbacks;
 
@@ -59,4 +62,7 @@ public:
 
     void addCallback(EpochCallback* callback);
     void clearCallbacks();
+
+    const TrainingProfiler& getProfiler() const;
+    TrainingProfiler& getProfiler();
 };

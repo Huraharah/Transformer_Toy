@@ -49,7 +49,7 @@ void launchGeluForward(float* data, size_t size) {
 	kernels::geluForwardKernel << <blocks, threads >> > (data, size);
 
 	CUDA_CHECK(cudaGetLastError());
-	cudaSync();
+	
 }
 
 void launchGeluBackward(
@@ -71,5 +71,5 @@ void launchGeluBackward(
 		);
 
 	CUDA_CHECK(cudaGetLastError());
-	cudaSync();
+	
 }

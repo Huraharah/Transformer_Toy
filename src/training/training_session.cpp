@@ -8,7 +8,7 @@ TrainingSession::TrainingSession(
     Loss& lossFunction,
     Optimizer& optimizer,
     const TrainingConfig& config,
-    const CharTokenizer* tokenizer
+    const Tokenizer* tokenizer
 )
     : trainer(
         model,
@@ -88,7 +88,7 @@ void TrainingSession::train(
     const std::vector<TrainingBatch>& trainBatches,
     const std::vector<TrainingBatch>* validationBatches
 ) {
-    //std::cout << "[DEBUG] TrainingSession::train entered." << std::endl;
+    //std::cout << "[DEBUG] TrainingSession::train entered...calling trainer.train()" << std::endl;
 
     trainer.train(
         trainBatches,

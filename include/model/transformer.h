@@ -47,7 +47,7 @@ public:
 
     std::string generate(
         const std::string& prompt,
-        const CharTokenizer& tokenizer,
+        const Tokenizer& tokenizer,
         size_t maxNewTokens,
         float temperature,
         size_t topK,
@@ -56,7 +56,7 @@ public:
 
     std::string generate(
         const std::string& prompt,
-        const CharTokenizer& tokenizer,
+        const Tokenizer& tokenizer,
         const GenerationConfig& config,
         Random& rng
         );

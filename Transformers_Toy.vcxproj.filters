@@ -133,6 +133,12 @@
     <ClInclude Include="include\tests\best_model_generation_tests.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="include\training\training_profiler.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\tests\profile_testing.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\core\layer.cpp">
@@ -215,6 +221,12 @@
       <Filter>Header Files</Filter>
     </ClCompile>
     <ClCompile Include="src\tests\run_best_model_generation_tests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\training\training_profiler.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests\profile_testing.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

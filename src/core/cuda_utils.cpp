@@ -1,7 +1,18 @@
 #include "core/cuda_utils.h"
 
-#include <stdexcept>
+#include <atomic>
 #include <sstream>
+#include <stdexcept>
+
+
+namespace {
+
+    std::atomic<bool> cudaSynchronizationEnabled{
+        false
+    };
+
+}
+
 
 void checkCuda(
     cudaError_t result,
@@ -17,36 +28,77 @@ void checkCuda(
             << "Operation: " << operation << "\n"
             << "File: " << file << "\n"
             << "Line: " << line << "\n"
-            << "Message: " << cudaGetErrorString(result);
+            << "Message: "
+            << cudaGetErrorString(result);
 
-        throw std::runtime_error(oss.str());
+        throw std::runtime_error(
+            oss.str()
+        );
     }
 }
 
+
 bool isCudaAvailable() {
     int count = 0;
-    cudaError_t err = cudaGetDeviceCount(&count);
 
-    if (err != cudaSuccess) {
-        cudaGetLastError(); // clear CUDA error state
+    const cudaError_t error =
+        cudaGetDeviceCount(&count);
+
+    if (error != cudaSuccess) {
+        cudaGetLastError();
         return false;
     }
 
     return count > 0;
 }
 
-Device resolveDevice(Device requested) {
-    if (requested == Device::AUTO) {
-        return isCudaAvailable() ? Device::CUDA : Device::CPU;
+
+Device resolveDevice(
+    Device requestedDevice
+) {
+    if (requestedDevice == Device::AUTO) {
+        return isCudaAvailable()
+            ? Device::CUDA
+            : Device::CPU;
     }
 
-    if (requested == Device::CUDA && !isCudaAvailable()) {
-        return Device::CPU; // or throw, depending on preference
+    if (
+        requestedDevice == Device::CUDA &&
+        !isCudaAvailable()
+        ) {
+        return Device::CPU;
     }
 
-    return requested;
+    return requestedDevice;
 }
 
+
 void cudaSync() {
-    checkCuda(cudaDeviceSynchronize(), "cudaDeviceSynchronize", __FILE__, __LINE__);
+    CUDA_CHECK(
+        cudaDeviceSynchronize()
+    );
+}
+
+
+void setCudaSynchronizationEnabled(
+    bool enabled
+) {
+    cudaSynchronizationEnabled.store(
+        enabled,
+        std::memory_order_relaxed
+    );
+}
+
+
+bool isCudaSynchronizationEnabled() {
+    return cudaSynchronizationEnabled.load(
+        std::memory_order_relaxed
+    );
+}
+
+
+void cudaSyncIfEnabled() {
+    if (isCudaSynchronizationEnabled()) {
+        cudaSync();
+    }
 }

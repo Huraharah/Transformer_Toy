@@ -15,7 +15,7 @@ struct GenerationSnapshot {
 
 class GenerationCallback : public EpochCallback {
 private:
-    const CharTokenizer& tokenizer;
+    const Tokenizer& tokenizer;
 
     std::string prompt;
     GenerationConfig generationConfig;
@@ -29,7 +29,7 @@ private:
 
 public:
     GenerationCallback(
-        const CharTokenizer& tokenizer_,
+        const Tokenizer& tokenizer_,
         const std::string& prompt_,
         const GenerationConfig& generationConfig_,
         int everyNEpochs_ = 1,

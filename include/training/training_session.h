@@ -26,7 +26,7 @@ public:
 		Loss& loss,
 		Optimizer& optimizer,
 		const TrainingConfig& config,
-		const CharTokenizer* tokenizer = nullptr
+		const Tokenizer* tokenizer = nullptr
 	);
 
 	void train(

@@ -1,8 +1,10 @@
 #pragma once
+
 #include "core/tensor.h"
 
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
+
 
 void checkCuda(
     cudaError_t result,
@@ -12,9 +14,26 @@ void checkCuda(
 );
 
 bool isCudaAvailable();
-Device resolveDevice(Device requestedDevice);
+
+Device resolveDevice(
+    Device requestedDevice
+);
 
 void cudaSync();
 
-#define CUDA_CHECK(val) \
-    checkCuda((val), #val, __FILE__, __LINE__)
+void setCudaSynchronizationEnabled(
+    bool enabled
+);
+
+bool isCudaSynchronizationEnabled();
+
+void cudaSyncIfEnabled();
+
+
+#define CUDA_CHECK(value) \
+    checkCuda(             \
+        (value),           \
+        #value,            \
+        __FILE__,          \
+        __LINE__           \
+    )

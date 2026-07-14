@@ -3,6 +3,7 @@
 #include <cmath>
 #include <stdexcept>
 #include <limits>
+#include <iostream>
 
 float CrossEntropyLoss::forward(
     const Tensor& logits,
@@ -23,7 +24,11 @@ float CrossEntropyLoss::forward(
         throw std::invalid_argument("CrossEntropyLoss target batch size does not match logits batch size.");
     }
 
+    //std::cout << "[DEBUG] Batch size: " << batchSize << ", number of classes: " << numClasses << "..." << std::endl;
+
     cachedGrad = Tensor(logits.shape(), 0.0f);
+
+    //std::cout << "[DEBUG] Moving to device..." << std::endl;
 
     if (logits.device() == Device::CUDA) {
         cachedGrad.toCUDA();
@@ -36,6 +41,8 @@ float CrossEntropyLoss::forward(
 
         mutableLogits.toCUDA();
         mutableTargets.toCUDA();
+
+        //std::cout << "[DEBUG] Launching kernel file..." << std::endl;
 
         launchCrossEntropyForwardBackwardKernel(
             mutableLogits.deviceData(),

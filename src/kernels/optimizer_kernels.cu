@@ -83,7 +83,7 @@ void launchAdamUpdateKernel(
 		timestep
 		);
 	CUDA_CHECK(cudaGetLastError());
-	cudaSync();
+	
 }
 
 void launchSGDUpdateKernel(
@@ -110,5 +110,5 @@ void launchSGDUpdateKernel(
 		);
 
 	CUDA_CHECK(cudaGetLastError());
-	cudaSync();
+	
 }

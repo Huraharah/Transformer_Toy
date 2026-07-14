@@ -24,6 +24,7 @@
 #include "training/early_stopping_callback.h"
 #include "training/generation_callback.h"
 #include "tests/best_model_generation_tests.h"
+#include <tests/profile_testing.h>
 #include "kernels/tensor_ops_kernels.cuh"
 #include "kernels/linear_kernels.cuh"
 #include "kernels/activation_kernels.cuh"
@@ -34,6 +35,7 @@
 #include <vector>
 #include <cassert>
 #include <cmath>
+#include <filesystem>
 #include <stdarg.h>
 
 void coreTest() {
@@ -407,7 +409,7 @@ void layersTest() {
     CharTokenizer tokenizer;
     tokenizer.buildFromText(text);
 
-    std::vector<size_t> encoded = tokenizer.encode(text);
+    std::vector<int> encoded = tokenizer.encode(text);
     std::string decoded = tokenizer.decode(encoded);
 
     std::cout << "Original text: " << text << "\n";
@@ -445,8 +447,8 @@ void dataTest() {
         targetIds.push_back(static_cast<size_t>(sampleTarget.at({ 0, i })));
     }
 
-    std::cout << "Input text:  [" << dataset.tokenizer().decode(inputIds) << "]\n";
-    std::cout << "Target text: [" << dataset.tokenizer().decode(targetIds) << "]\n\n";
+    //std::cout << "Input text:  [" << dataset.tokenizer().decode(inputIds) << "]\n";
+    //std::cout << "Target text: [" << dataset.tokenizer().decode(targetIds) << "]\n\n";
 
     std::cout << "==================================================\n";
     std::cout << "||              Generation Test                 ||\n";
@@ -511,11 +513,11 @@ void dataTest() {
             targetIds.push_back(static_cast<size_t>(batchTargets.at({ b, t })));
         }
 
-        std::cout << "Sample " << b << " input:  ["
-            << dataset.tokenizer().decode(inputIds) << "]\n";
+        //std::cout << "Sample " << b << " input:  ["
+            //<< dataset.tokenizer().decode(inputIds) << "]\n";
 
-        std::cout << "Sample " << b << " target: ["
-            << dataset.tokenizer().decode(targetIds) << "]\n";
+        //std::cout << "Sample " << b << " target: ["
+            //<< dataset.tokenizer().decode(targetIds) << "]\n";
     }
 
     /*std::cout << "\n==================================================\n";
@@ -3037,6 +3039,266 @@ void testGenerationCallback() {
     std::cout << "[PASS] GenerationCallback\n";
 }
 
+void testCharTokenizerRoundTrip() {
+    CharTokenizer tokenizer;
+
+    const std::string text = "To be,\nOr not.";
+
+    tokenizer.train(text);
+
+    std::vector<int> ids = tokenizer.encode(text);
+    std::string decoded = tokenizer.decode(ids);
+
+    assert(!ids.empty());
+    assert(decoded == text);
+    assert(tokenizer.vocabSize() > 0);
+    assert(tokenizer.isTrained());
+
+    std::cout << "[PASS] Character Tokenizer Round Trip" << std::endl;
+}
+
+void testWordTokenizerRoundTrip() {
+    WordTokenizer tokenizer(
+        0,      // unlimited vocabulary
+        1,      // minimum frequency
+        true,   // preserve whitespace
+        true    // preserve punctuation
+    );
+
+    const std::string text =
+        "To be, or not to be.\nThat is the question.";
+
+    tokenizer.train(text);
+
+    std::vector<int> ids = tokenizer.encode(text);
+    std::string decoded = tokenizer.decode(ids);
+
+    assert(!ids.empty());
+    assert(decoded == text);
+    assert(tokenizer.isTrained());
+
+    std::cout << "[PASS] Word Tokenizer Round Trip" << std::endl;
+}
+
+void testBPETokenizerRoundTrip() {
+    BPETokenizer tokenizer(
+        64,
+        2
+    );
+
+    const std::string corpus =
+        "low lower lowest low lower lowest "
+        "newer wider lower";
+
+    tokenizer.train(corpus);
+
+    std::vector<int> ids =
+        tokenizer.encode(corpus);
+
+    std::string decoded =
+        tokenizer.decode(ids);
+
+    assert(!ids.empty());
+    assert(decoded == corpus);
+    assert(tokenizer.isTrained());
+    assert(tokenizer.vocabSize() > 0);
+    assert(!tokenizer.merges().empty());
+
+    std::cout << "[PASS] BPE Tokenizer Round Trip" << std::endl;
+}
+
+void testBPETokenizerDeterminism() {
+    const std::string corpus =
+        "banana bandana banana bandana";
+
+    BPETokenizer first(32, 2);
+    BPETokenizer second(32, 2);
+
+    first.train(corpus);
+    second.train(corpus);
+
+    assert(first.vocabSize() == second.vocabSize());
+    assert(first.merges() == second.merges());
+
+    std::vector<int> firstIds =
+        first.encode(corpus);
+
+    std::vector<int> secondIds =
+        second.encode(corpus);
+
+    assert(firstIds == secondIds);
+
+    std::cout << "[PASS] BPE Tokenizer Determinism" << std::endl;
+}
+
+void testCharTokenizerSaveLoad() {
+    const std::string path =
+        "./test_char_tokenizer.tok";
+
+    const std::string text =
+        "abc ABC\n";
+
+    CharTokenizer original;
+    original.train(text);
+
+    assert(original.save(path));
+
+    CharTokenizer loaded;
+    assert(loaded.load(path));
+
+    assert(
+        loaded.encode(text) ==
+        original.encode(text)
+    );
+
+    assert(
+        loaded.decode(
+            loaded.encode(text)
+        ) == text
+    );
+
+    std::filesystem::remove(path);
+
+    std::cout << "[PASS] Character Tokenizer Save/Load" << std::endl;
+}
+
+void testBPETokenizerSaveLoad() {
+    const std::string path =
+        "./test_bpe_tokenizer.tok";
+
+    const std::string corpus =
+        "to be or not to be "
+        "to be or not to be";
+
+    BPETokenizer original(64, 2);
+    original.train(corpus);
+
+    assert(original.save(path));
+
+    BPETokenizer loaded;
+    assert(loaded.load(path));
+
+    assert(
+        loaded.encode(corpus) ==
+        original.encode(corpus)
+    );
+
+    assert(
+        loaded.decode(
+            loaded.encode(corpus)
+        ) == corpus
+    );
+
+    assert(
+        loaded.merges() ==
+        original.merges()
+    );
+
+    std::filesystem::remove(path);
+
+    std::cout << "[PASS] BPE Tokenizer Save/Load" << std::endl;
+}
+
+void testTokenizerFactory() {
+    TokenizerConfig config;
+
+    config.type = TokenizerType::Character;
+    std::unique_ptr<Tokenizer> character =
+        createTokenizer(config);
+
+    assert(character);
+    assert(
+        character->type() ==
+        TokenizerType::Character
+    );
+
+    config.type = TokenizerType::Word;
+    std::unique_ptr<Tokenizer> word =
+        createTokenizer(config);
+
+    assert(word);
+    assert(
+        word->type() ==
+        TokenizerType::Word
+    );
+
+    config.type = TokenizerType::BPE;
+    config.vocabSize = 64;
+    config.minFrequency = 2;
+
+    std::unique_ptr<Tokenizer> bpe =
+        createTokenizer(config);
+
+    assert(bpe);
+    assert(
+        bpe->type() ==
+        TokenizerType::BPE
+    );
+
+    std::cout << "[PASS] Tokenizer Factory" << std::endl;
+}
+
+void testTextDatasetCharacterTokenizer() {
+    TokenizerConfig config;
+    config.type = TokenizerType::Character;
+
+    TextDataset dataset(
+        "./data/tiny_shakespeare.txt",
+        32,
+        config
+    );
+
+    assert(dataset.vocabSize() > 0);
+    assert(dataset.numWindows() > 0);
+    assert(dataset.tokenCount() > 32);
+
+    assert(
+        dataset.tokenizer().type() ==
+        TokenizerType::Character
+    );
+    std::cout << "Dataset Character Tokenizer" << std::endl;
+}
+
+void testTextDatasetBPETokenizer() {
+    const std::string tokenizerPath =
+        "./test_tokenizers/test_bpe.tok";
+
+    TokenizerConfig config;
+    config.type = TokenizerType::BPE;
+    config.vocabSize = 128;
+    config.minFrequency = 2;
+    config.modelPath = tokenizerPath;
+    config.trainIfMissing = true;
+
+    TextDataset dataset(
+        "./data/tiny_shakespeare.txt",
+        32,
+        config
+    );
+
+    assert(dataset.vocabSize() > 0);
+    assert(dataset.numWindows() > 0);
+
+    assert(
+        dataset.tokenizer().type() ==
+        TokenizerType::BPE
+    );
+
+    assert(
+        std::filesystem::exists(
+            tokenizerPath
+        )
+    );
+
+    std::filesystem::remove(
+        tokenizerPath
+    );
+
+    std::cout << "[PASS] Dataset BPE Tokenizer" << std::endl;
+}
+
+
+
 /*
 _______________________________________________________________________________________________________________________________________________________________
 Add more test functions as needed
@@ -3051,9 +3313,14 @@ int main(int argc, char** argv) {
 
     bool runSmokeTest = false;
 	Device deviceSmoke = Device::AUTO;
+
 	bool runShakedownTest = false;
 	Device deviceShakedown = Device::AUTO;
-	bool bypassBasicTests = false;
+
+	bool runProfilerTests = false;
+    Device deviceProfiler = Device::AUTO;
+
+    bool bypassBasicTests = false;
 	bool runSpecificTests = false;
     bool runCoreTests = false;
 	bool runAccelTests = false;
@@ -3065,6 +3332,7 @@ int main(int argc, char** argv) {
     bool runCheckpointTests = false;
     bool runGenerationTests = false;
     bool runGenerationFineTune = false;
+    bool runTokenizerTests = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "--smoke") {
@@ -3095,6 +3363,20 @@ int main(int argc, char** argv) {
                 i++; // Skip the next argument since it's the device flag
 			}
 		}
+        else if (std::string(argv[i]) == "--profile") {
+            runProfilerTests = true;
+            std::cout << "Running profiler tests enabled." << std::endl;
+            if (std::string(argv[i + 1]) == "-C" || std::string(argv[i + 1]) == "-c") {
+                deviceProfiler = Device::CPU;
+                std::cout << "Device set to CPU." << std::endl;
+                i++; // Skip the next argument since it's the device flag
+            }
+            else if (std::string(argv[i + 1]) == "-G" || std::string(argv[i + 1]) == "-g") {
+                deviceProfiler = Device::CUDA;
+                std::cout << "Device set to CUDA." << std::endl;
+                i++; // Skip the next argument since it's the device flag
+            }
+        }
 		else if (std::string(argv[i]) == "--bypass") {
 			bypassBasicTests = true;
 			std::cout << "Bypassing core tests enabled." << std::endl;
@@ -3147,6 +3429,11 @@ int main(int argc, char** argv) {
             runGenerationFineTune = true;
             std::cout << "Best Checkpoint generation fine tune enabled." << std::endl;
         }
+        else if (std::string(argv[i]) == "--tokenizer") {
+            runTokenizerTests = true;
+            runSpecificTests = true;
+            std::cout << "Tokenizer tests enabled." << std::endl;
+        }
         else if (std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h") {
             std::cout << "Usage: " << argv[0] << " [options]\n";
             std::cout << "Options:\n";
@@ -3156,6 +3443,9 @@ int main(int argc, char** argv) {
 			std::cout << "  --shakedown             Run shakedown tests\n";
 			std::cout << "  --shakedown -C/-c       Run shakedown tests on CPU\n";
 			std::cout << "  --shakedown -G/-g       Run shakedown tests on GPU\n";
+            std::cout << "  --profiler              Run profiler benchmarking tests\n";
+            std::cout << "  --profiler -C/-c        Run profiler benchmarking tests on CPU\n";
+            std::cout << "  --profiler -G/-g        Run profiler benchmarking tests on GPU\n";
             std::cout << "  --bypass                Bypass basic tests\n";
             std::cout << "  --core                  Run core tests\n";
             std::cout << "  --accel                 Run accelerator tests\n";
@@ -3166,6 +3456,7 @@ int main(int argc, char** argv) {
 			std::cout << "  --config                Run configuration tests\n";
             std::cout << "  --checkpoint            Run checkpointing tests\n";
             std::cout << "  --generate-best         Load best checkpoint and run generation suite\n";
+            std::cout << "  --tokenizer             Run tokenizer specific tests from update\n";
         }
 		else {
 			std::cerr << "Unknown option: " << argv[i] << "\n";
@@ -3274,6 +3565,21 @@ int main(int argc, char** argv) {
             testEarlyStoppingCallback();
             testGenerationCallback();
         }
+        if (runTokenizerTests || !runSpecificTests) {
+            std::cout << "\n==================================================\n";
+            std::cout << "||            Tokenizer Update Tests            ||\n";
+            std::cout << "==================================================\n\n";
+
+            testCharTokenizerRoundTrip();
+            testWordTokenizerRoundTrip();
+            testBPETokenizerRoundTrip();
+            testBPETokenizerDeterminism();
+            testCharTokenizerSaveLoad();
+            testBPETokenizerSaveLoad();
+            testTokenizerFactory();
+            testTextDatasetCharacterTokenizer();
+            testTextDatasetBPETokenizer();
+        }
     
 		std::cout << "\n===================================================\n";
 		std::cout << "||          All selected tests passed!           ||\n";
@@ -3320,6 +3626,10 @@ int main(int argc, char** argv) {
             << "||          Generation Fine Tune                 ||\n"
             << "===================================================\n" << std::flush;
         runNarrowBandGenerationTests();
+    }
+
+    if (runProfilerTests) {
+        runProfileBenchmark(deviceProfiler);
     }
 
 	std::cout << "\n=================================================\n";

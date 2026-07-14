@@ -388,7 +388,7 @@ void launchSelfAttentionForward(
         );
 
     CUDA_CHECK(cudaGetLastError());
-    cudaSync();
+    
 }
 
 void launchSelfAttentionBackward(
@@ -430,7 +430,7 @@ void launchSelfAttentionBackward(
         );
 
     CUDA_CHECK(cudaGetLastError());
-    cudaSync();
+    
 }
 
 void launchMultiHeadAttentionForward(
@@ -474,7 +474,7 @@ void launchMultiHeadAttentionForward(
         );
 
     CUDA_CHECK(cudaGetLastError());
-    cudaSync();
+    
 }
 
 void launchMultiHeadAttentionBackward(
@@ -524,5 +524,5 @@ void launchMultiHeadAttentionBackward(
         );
 
     CUDA_CHECK(cudaGetLastError());
-    cudaSync();
+    
 }

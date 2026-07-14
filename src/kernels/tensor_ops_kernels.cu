@@ -79,7 +79,7 @@ void launchTensorFill(Tensor& tensor, float value) {
         );
 
     CUDA_CHECK(cudaGetLastError());
-    cudaSync();
+    
 }
 
 void launchTensorScale(Tensor& tensor, float scalar) {
@@ -100,7 +100,7 @@ void launchTensorScale(Tensor& tensor, float scalar) {
         );
 
     CUDA_CHECK(cudaGetLastError());
-    cudaSync();
+    
 }
 
 void launchTensorAdd(const Tensor& a, const Tensor& b, Tensor& out) {
@@ -131,7 +131,7 @@ void launchTensorAdd(const Tensor& a, const Tensor& b, Tensor& out) {
         );
 
     CUDA_CHECK(cudaGetLastError());
-    cudaSync();
+    
 }
 
 void launchFlatten3DTo2D(
@@ -157,7 +157,7 @@ void launchFlatten3DTo2D(
         );
 
     CUDA_CHECK(cudaGetLastError());
-    cudaSync();
+    
 }
 
 void launchUnflatten2DTo3D(
@@ -183,5 +183,5 @@ void launchUnflatten2DTo3D(
         );
 
     CUDA_CHECK(cudaGetLastError());
-    cudaSync();
+    
 }

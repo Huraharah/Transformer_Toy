@@ -123,7 +123,7 @@ void launchLinearForward(
 		kernels::linearForwardKernel<<<grid, block>>>(input, weights, bias, output, batchSize, inFeatures, outFeatures);
 
 		CUDA_CHECK(cudaGetLastError());
-		cudaSync();
+		
 	}
 }
 
@@ -189,5 +189,5 @@ void launchLinearBackward(
 		);
 
 	CUDA_CHECK(cudaGetLastError());
-	cudaSync();
+	
 }

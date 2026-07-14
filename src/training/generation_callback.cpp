@@ -8,7 +8,7 @@
 #include <vector>
 
 GenerationCallback::GenerationCallback(
-    const CharTokenizer& tokenizer_,
+    const Tokenizer& tokenizer_,
     const std::string& prompt_,
     const GenerationConfig& generationConfig_,
     int everyNEpochs_,

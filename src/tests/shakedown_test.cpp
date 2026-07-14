@@ -69,7 +69,7 @@ namespace {
         This means the corpus tail is not silently discarded.
     */
     BatchBuildResult buildSequentialBatches(
-        const std::vector<size_t>& tokenIds,
+        const std::vector<int>& tokenIds,
         size_t rangeBegin,
         size_t rangeEnd,
         size_t contextLength,
@@ -356,7 +356,7 @@ namespace {
             contextLength
         );
 
-        const std::vector<size_t> allTokenIds =
+        const std::vector<int> allTokenIds =
             dataset.tokenizer().encode(
                 dataset.rawText()
             );

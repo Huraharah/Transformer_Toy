@@ -6,6 +6,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <cuda_runtime.h>
 
 Trainer::Trainer(
     TrainableModel& model_,
@@ -16,7 +17,8 @@ Trainer::Trainer(
     : config(config_),
     model(model_),
     lossFunction(lossFunction_),
-    optimizer(optimizer_) {
+    optimizer(optimizer_),
+    profiler_(config.enableProfiling){ 
 }
 
 TrainingHistory& Trainer::getHistory() {
@@ -31,38 +33,78 @@ void Trainer::train(
     const std::vector<TrainingBatch>& trainBatches,
     const std::vector<TrainingBatch>* validationBatches
 ) {
-    //std::cout << "[DEBUG] Trainer::train entered." << std::endl;
-
     if (trainBatches.empty()) {
-        throw std::invalid_argument("Trainer::train received empty training batches.");
+        throw std::invalid_argument(
+            "Trainer::train received empty training batches."
+        );
     }
 
     if (config.epochs <= 0) {
-        throw std::invalid_argument("Trainer config epochs must be > 0.");
+        throw std::invalid_argument(
+            "Trainer config epochs must be > 0."
+        );
     }
 
-    std::vector<Parameter*> params = model.parameters();
+    std::vector<Parameter*> params =
+        model.parameters();
 
-    Device activeDevice = resolveDevice(config.device);
+    Device activeDevice =
+        resolveDevice(config.device);
 
-    for (Parameter* p : params) {
+    if (activeDevice == Device::CUDA) {
+        setCudaSynchronizationEnabled(
+            config.enableProfiling &&
+            config.synchronizeProfilingPhases
+        );
+    }
+
+    for (Parameter* parameter : params) {
+        if (!parameter) {
+            continue;
+        }
+
         if (activeDevice == Device::CUDA) {
-            p->value.toCUDA();
-            p->grad.toCUDA();
+            parameter->value.toCUDA();
+            parameter->grad.toCUDA();
         }
         else {
-            p->value.toCPU();
-            p->grad.toCPU();
+            parameter->value.toCPU();
+            parameter->grad.toCPU();
         }
     }
 
-    for (int epoch = 1; epoch <= config.epochs; ++epoch) {
+    profiler_.reset();
+    profiler_.start(ProfilePhase::TotalTraining);
+
+    for (
+        int epoch = 1;
+        epoch <= config.epochs;
+        ++epoch
+        ) {
+        profiler_.start(ProfilePhase::Epoch);
+
         float epochLossSum = 0.0f;
 
-        //std::cout << "[DEBUG] Epoch " << epoch << " started..." << std::endl;
+        for (
+            std::size_t batchIndex = 0;
+            batchIndex < trainBatches.size();
+            ++batchIndex
+            ) {
+            profiler_.start(
+                ProfilePhase::TrainingStep
+            );
 
-        for (size_t batchIndex = 0; batchIndex < trainBatches.size(); ++batchIndex) {
-            TrainingBatch batch = trainBatches[batchIndex];
+            /*
+                This remains a copy because moving the tensors between
+                devices mutates their device state. We can revisit this
+                during the optimization pass.
+            */
+            TrainingBatch batch =
+                trainBatches[batchIndex];
+
+            profiler_.start(
+                ProfilePhase::BatchTransfer
+            );
 
             if (activeDevice == Device::CUDA) {
                 batch.inputs.toCUDA();
@@ -73,85 +115,236 @@ void Trainer::train(
                 batch.targets.toCPU();
             }
 
-            Tensor predictions = model.forward(batch.inputs);
+            synchronizeProfilePhase(activeDevice);
+
+            profiler_.stop(
+                ProfilePhase::BatchTransfer
+            );
+
+            profiler_.start(
+                ProfilePhase::ModelForward
+            );
+
+            Tensor predictions =
+                model.forward(batch.inputs);
+
+            synchronizeProfilePhase(activeDevice);
+
+            profiler_.stop(
+                ProfilePhase::ModelForward
+            );
 
             Tensor flatPredictions;
             Tensor flatTargets;
 
             if (predictions.rank() == 3) {
-                flatPredictions = LayerUtils::flatten3DTo2D(predictions);
+                flatPredictions =
+                    LayerUtils::flatten3DTo2D(
+                        predictions
+                    );
 
-                flatTargets = Tensor({ batch.targets.size() });
+                flatTargets =
+                    Tensor({ batch.targets.size() });
 
-                for (size_t i = 0; i < batch.targets.size(); ++i) {
-                    flatTargets[i] = batch.targets[i];
+                for (
+                    std::size_t i = 0;
+                    i < batch.targets.size();
+                    ++i
+                    ) {
+                    flatTargets[i] =
+                        batch.targets[i];
                 }
             }
             else if (predictions.rank() == 2) {
-                flatPredictions = predictions;
-                flatTargets = batch.targets;
+                flatPredictions =
+                    predictions;
+
+                flatTargets =
+                    batch.targets;
             }
             else {
                 throw std::invalid_argument(
-                    "Trainer::train expects model predictions with rank 2 or 3."
+                    "Trainer::train expects model predictions "
+                    "with rank 2 or 3."
                 );
             }
 
+            /*
+                flatTargets is newly constructed on the CPU in the
+                rank-3 path, so it must be moved before CUDA loss.
+            */
             if (activeDevice == Device::CUDA) {
                 flatTargets.toCUDA();
             }
+            else {
+                flatTargets.toCPU();
+            }
 
-            float lossValue = lossFunction.forward(flatPredictions, flatTargets);
+            profiler_.start(
+                ProfilePhase::LossForward
+            );
 
-            Tensor flatGradLoss = lossFunction.backward();
+            const float lossValue =
+                lossFunction.forward(
+                    flatPredictions,
+                    flatTargets
+                );
+
+            synchronizeProfilePhase(activeDevice);
+
+            profiler_.stop(
+                ProfilePhase::LossForward
+            );
+
+            profiler_.start(
+                ProfilePhase::LossBackward
+            );
+
+            Tensor flatGradLoss =
+                lossFunction.backward();
+
+            synchronizeProfilePhase(activeDevice);
+
+            profiler_.stop(
+                ProfilePhase::LossBackward
+            );
 
             Tensor gradLoss;
 
             if (predictions.rank() == 3) {
-                gradLoss = LayerUtils::unflatten2DTo3D(
-                    flatGradLoss,
-                    predictions.shape()[0],
-                    predictions.shape()[1]
-                );
+                gradLoss =
+                    LayerUtils::unflatten2DTo3D(
+                        flatGradLoss,
+                        predictions.shape()[0],
+                        predictions.shape()[1]
+                    );
             }
             else {
-                gradLoss = flatGradLoss;
+                gradLoss =
+                    flatGradLoss;
             }
+
+            profiler_.start(
+                ProfilePhase::ModelBackward
+            );
 
             model.backward(gradLoss);
 
+            synchronizeProfilePhase(activeDevice);
+
+            profiler_.stop(
+                ProfilePhase::ModelBackward
+            );
+
+            profiler_.start(
+                ProfilePhase::OptimizerStep
+            );
+
             optimizer.step(params);
+
+            synchronizeProfilePhase(activeDevice);
+
+            profiler_.stop(
+                ProfilePhase::OptimizerStep
+            );
+
+            profiler_.start(
+                ProfilePhase::ZeroGrad
+            );
+
             optimizer.zeroGrad(params);
 
+            synchronizeProfilePhase(activeDevice);
+
+            profiler_.stop(
+                ProfilePhase::ZeroGrad
+            );
+
             history.addTrainLoss(lossValue);
+
             epochLossSum += lossValue;
             ++globalStep;
 
-            if (config.logEverySteps > 0 && globalStep % config.logEverySteps == 0) {
+            profiler_.incrementProcessedSteps();
+
+            profiler_.addProcessedTokens(
+                batch.inputs.size()
+            );
+
+            synchronizeProfilePhase(activeDevice);
+
+            profiler_.stop(
+                ProfilePhase::TrainingStep
+            );
+
+            if (
+                config.logEverySteps > 0 &&
+                globalStep %
+                config.logEverySteps == 0
+                ) {
                 std::cout
-                    << "[TRAIN] epoch=" << epoch
-                    << " step=" << globalStep
-                    << " loss=" << lossValue
+                    << "[TRAIN] epoch="
+                    << epoch
+                    << " step="
+                    << globalStep
+                    << " loss="
+                    << lossValue
                     << "\n";
             }
         }
 
-        float avgEpochLoss = epochLossSum / static_cast<float>(trainBatches.size());
-
-        std::cout
-            << "[EPOCH] " << epoch
-            << "/" << config.epochs
-            << " avg_train_loss=" << avgEpochLoss;
+        const float avgEpochLoss =
+            epochLossSum /
+            static_cast<float>(
+                trainBatches.size()
+                );
 
         float valLoss = 0.0f;
         bool hasValidationLoss = false;
 
-        if (validationBatches && !validationBatches->empty()) {
-            valLoss = evaluate(*validationBatches);
-            history.addValidationLoss(valLoss);
+        if (
+            validationBatches &&
+            !validationBatches->empty()
+            ) {
+            profiler_.start(
+                ProfilePhase::Validation
+            );
+
+            valLoss =
+                evaluate(*validationBatches);
+
+            synchronizeProfilePhase(activeDevice);
+
+            profiler_.stop(
+                ProfilePhase::Validation
+            );
+
+            history.addValidationLoss(
+                valLoss
+            );
+
             hasValidationLoss = true;
-            std::cout << " val_loss=" << valLoss;
         }
+
+        /*
+            Print after validation so debug or profiling output from
+            evaluate() cannot split the epoch summary line.
+        */
+        std::cout
+            << "[EPOCH] "
+            << epoch
+            << "/"
+            << config.epochs
+            << " avg_train_loss="
+            << avgEpochLoss;
+
+        if (hasValidationLoss) {
+            std::cout
+                << " val_loss="
+                << valLoss;
+        }
+
+        std::cout << "\n";
 
         EpochContext context;
         context.epoch = epoch;
@@ -159,31 +352,72 @@ void Trainer::train(
         context.globalStep = globalStep;
         context.trainLoss = avgEpochLoss;
         context.validationLoss = valLoss;
-        context.hasValidationLoss = hasValidationLoss;
+        context.hasValidationLoss =
+            hasValidationLoss;
         context.device = activeDevice;
         context.runName = config.runName;
-        context.checkpointDirectory = config.checkpointDirectory;
-        context.checkpointEveryEpochs = config.checkpointEveryEpochs;
-
-        std::cout << "\n";
+        context.checkpointDirectory =
+            config.checkpointDirectory;
+        context.checkpointEveryEpochs =
+            config.checkpointEveryEpochs;
 
         bool stopTraining = false;
+
+        profiler_.start(
+            ProfilePhase::Callbacks
+        );
 
         for (EpochCallback* callback : callbacks) {
             if (!callback) {
                 continue;
             }
 
-            callback->onEpochEnd(context, model, optimizer, history);
+            callback->onEpochEnd(
+                context,
+                model,
+                optimizer,
+                history
+            );
 
             if (callback->shouldStopTraining()) {
                 stopTraining = true;
             }
         }
 
+        synchronizeProfilePhase(activeDevice);
+
+        profiler_.stop(
+            ProfilePhase::Callbacks
+        );
+
+        synchronizeProfilePhase(activeDevice);
+
+        profiler_.stop(
+            ProfilePhase::Epoch
+        );
+
         if (stopTraining) {
             break;
         }
+    }
+
+    synchronizeProfilePhase(activeDevice);
+
+    profiler_.stop(
+        ProfilePhase::TotalTraining
+    );
+
+    if (activeDevice == Device::CUDA) {
+        setCudaSynchronizationEnabled(false);
+    }
+
+    if (
+        config.enableProfiling &&
+        config.printProfileSummary
+        ) {
+        profiler_.printSummary(
+            std::cout
+        );
     }
 }
 
@@ -249,4 +483,33 @@ void Trainer::addCallback(EpochCallback* callback) {
 
 void Trainer::clearCallbacks() {
     callbacks.clear();
+}
+
+const TrainingProfiler&
+Trainer::getProfiler() const {
+    return profiler_;
+}
+
+
+TrainingProfiler&
+Trainer::getProfiler() {
+    return profiler_;
+}
+
+void Trainer::synchronizeProfilePhase(Device activeDevice) const {
+    if (!config.enableProfiling || !config.synchronizeProfilingPhases || activeDevice != Device::CUDA) {
+        return;
+    }
+
+    const cudaError_t status =
+        cudaDeviceSynchronize();
+
+    if (status != cudaSuccess) {
+        throw std::runtime_error(
+            std::string(
+                "CUDA profiling synchronization failed: "
+            ) +
+            cudaGetErrorString(status)
+        );
+    }
 }

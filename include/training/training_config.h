@@ -59,4 +59,14 @@ struct TrainingConfig {
     int generationEveryEpochs;
     GenerationConfig generationConfig;
     std::string generationPrompt;
+
+    //-------------------------
+    // Profiling
+    //-------------------------
+
+    bool enableProfiling = false;
+    bool printProfileSummary = true;
+    bool synchronizeProfilingPhases = false;
+    int profileWarmupSteps = 5;
+    int profileEverySteps = 1;
 };
