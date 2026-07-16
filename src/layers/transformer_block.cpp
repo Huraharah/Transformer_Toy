@@ -3,6 +3,7 @@
 #include "core/parameter.h"
 
 #include <stdexcept>
+#include <training/training_profiler.h>
 
 TransformerBlock::TransformerBlock(const TransformerBlockConfig& config, Random& rng)
     : config_(config),
@@ -37,10 +38,29 @@ TransformerBlock::TransformerBlock(const TransformerBlockConfig& config, Random&
     }
 }
 
-Tensor TransformerBlock::forward(const Tensor& input){
+void TransformerBlock::setProfiler(TrainingProfiler* profiler) {
+    profiler_ = profiler;
+
+    ffn_.setProfiler(profiler);
+    norm1_.setProfiler(profiler);
+    norm2_.setProfiler(profiler);
+
+    if (singleAttention_) {
+        singleAttention_->setProfiler(profiler);
+    }
+
+    if (multiAttention_) {
+        multiAttention_->setProfiler(profiler);
+    }
+}
+
+Tensor TransformerBlock::forward(
+    const Tensor& input
+) {
     if (input.rank() != 3) {
         throw std::invalid_argument(
-            "TransformerBlock::forward expects input shape [batch, sequence, embedDim]."
+            "TransformerBlock::forward expects input shape "
+            "[batch, sequence, embedDim]."
         );
     }
 
@@ -50,98 +70,243 @@ Tensor TransformerBlock::forward(const Tensor& input){
         );
     }
 
-	cachedInput_ = input;
+    cachedInput_ = input;
 
-    Tensor normed1 = norm1_.forward(input);
-
+    Tensor normed1;
     Tensor attended;
+    Tensor residual1;
+    Tensor normed2;
+    Tensor mixed;
+    Tensor residual2;
 
-    if (singleAttention_) {
-        attended = singleAttention_->forward(normed1);
-    }
-    else if (multiAttention_) {
-        attended = multiAttention_->forward(normed1);
-    }
-    else {
-        throw std::runtime_error("TransformerBlock: no attention layer initialized.");
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::BlockNorm1Forward,
+            input.device()
+        );
+
+        normed1 =
+            norm1_.forward(input);
     }
 
-    Tensor residual1 = MathUtils::add(input, attended);
-	cachedAttentionResidual_ = residual1;
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::BlockAttentionForward,
+            input.device()
+        );
 
-    Tensor normed2 = norm2_.forward(residual1);
-    Tensor mixed = ffn_.forward(normed2);
-    Tensor residual2 = MathUtils::add(residual1, mixed);
+        if (singleAttention_) {
+            attended =
+                singleAttention_->forward(
+                    normed1
+                );
+        }
+        else if (multiAttention_) {
+            attended =
+                multiAttention_->forward(
+                    normed1
+                );
+        }
+        else {
+            throw std::runtime_error(
+                "TransformerBlock: no attention layer initialized."
+            );
+        }
+    }
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::BlockResidual1Forward,
+            input.device()
+        );
+
+        residual1 =
+            MathUtils::add(
+                input,
+                attended
+            );
+
+        cachedAttentionResidual_ =
+            residual1;
+    }
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::BlockNorm2Forward,
+            input.device()
+        );
+
+        normed2 =
+            norm2_.forward(
+                residual1
+            );
+    }
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::BlockFFNForward,
+            input.device()
+        );
+
+        mixed =
+            ffn_.forward(
+                normed2
+            );
+    }
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::BlockResidual2Forward,
+            input.device()
+        );
+
+        residual2 =
+            MathUtils::add(
+                residual1,
+                mixed
+            );
+    }
 
     return residual2;
 }
 
-Tensor TransformerBlock::backward(const Tensor& gradOutput) {
+Tensor TransformerBlock::backward(
+    const Tensor& gradOutput
+) {
     if (cachedInput_.empty()) {
-        throw std::runtime_error("TransformerBlock::backward called before forward.");
+        throw std::runtime_error(
+            "TransformerBlock::backward called before forward."
+        );
     }
 
-    if (gradOutput.shape() != cachedInput_.shape()) {
-        throw std::invalid_argument("TransformerBlock::backward gradOutput shape mismatch.");
+    if (
+        gradOutput.shape() !=
+        cachedInput_.shape()
+        ) {
+        throw std::invalid_argument(
+            "TransformerBlock::backward gradOutput shape mismatch."
+        );
     }
 
-    /*
-        Forward pre-norm shape:
+    Tensor gradResidual1Direct =
+        gradOutput;
 
-        x
-          ├──────────────┐
-          ↓              │
-        norm1            │
-          ↓              │
-        attention        │
-          ↓              │
-        residual1 = x + attended
-          ├──────────────┐
-          ↓              │
-        norm2            │
-          ↓              │
-        ffn              │
-          ↓              │
-        residual2 = residual1 + mixed
-    */
+    Tensor gradMixed =
+        gradOutput;
 
-    // residual2 = residual1 + mixed
-    // gradOutput flows directly to residual1 and through FFN path.
-    Tensor gradResidual1Direct = gradOutput;
-
-    Tensor gradMixed = gradOutput;
-    Tensor gradNormed2 = ffn_.backward(gradMixed);
-    Tensor gradResidual1FromFFN = norm2_.backward(gradNormed2);
-
-    Tensor gradResidual1 = MathUtils::add(
-        gradResidual1Direct,
-        gradResidual1FromFFN
-    );
-
-    // residual1 = input + attended
-    // gradResidual1 flows directly to input and through attention path.
-    Tensor gradInputDirect = gradResidual1;
-
-    Tensor gradAttended = gradResidual1;
-
+    Tensor gradNormed2;
+    Tensor gradResidual1FromFFN;
+    Tensor gradResidual1;
+    Tensor gradInputDirect;
+    Tensor gradAttended;
     Tensor gradNormed1;
+    Tensor gradInputFromAttention;
+    Tensor gradInput;
 
-    if (singleAttention_) {
-        gradNormed1 = singleAttention_->backward(gradAttended);
-    }
-    else if (multiAttention_) {
-        gradNormed1 = multiAttention_->backward(gradAttended);
-    }
-    else {
-        throw std::runtime_error("TransformerBlock::backward has no attention module.");
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::BlockFFNBackward,
+            gradOutput.device()
+        );
+
+        gradNormed2 =
+            ffn_.backward(
+                gradMixed
+            );
     }
 
-    Tensor gradInputFromAttention = norm1_.backward(gradNormed1);
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::BlockNorm2Backward,
+            gradOutput.device()
+        );
 
-    Tensor gradInput = MathUtils::add(
-        gradInputDirect,
-        gradInputFromAttention
-    );
+        gradResidual1FromFFN =
+            norm2_.backward(
+                gradNormed2
+            );
+    }
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::BlockResidual1Backward,
+            gradOutput.device()
+        );
+
+        gradResidual1 =
+            MathUtils::add(
+                gradResidual1Direct,
+                gradResidual1FromFFN
+            );
+    }
+
+    gradInputDirect =
+        gradResidual1;
+
+    gradAttended =
+        gradResidual1;
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::BlockAttentionBackward,
+            gradOutput.device()
+        );
+
+        if (singleAttention_) {
+            gradNormed1 =
+                singleAttention_->backward(
+                    gradAttended
+                );
+        }
+        else if (multiAttention_) {
+            gradNormed1 =
+                multiAttention_->backward(
+                    gradAttended
+                );
+        }
+        else {
+            throw std::runtime_error(
+                "TransformerBlock::backward has no attention module."
+            );
+        }
+    }
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::BlockNorm1Backward,
+            gradOutput.device()
+        );
+
+        gradInputFromAttention =
+            norm1_.backward(
+                gradNormed1
+            );
+    }
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::BlockInputMergeBackward,
+            gradOutput.device()
+        );
+
+        gradInput =
+            MathUtils::add(
+                gradInputDirect,
+                gradInputFromAttention
+            );
+    }
 
     return gradInput;
 }

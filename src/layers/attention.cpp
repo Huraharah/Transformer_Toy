@@ -1,6 +1,7 @@
 #include "layers/attention.h"
 #include "core/math_utils.h"
 #include "core/parameter.h"
+#include "training/training_profiler.h"
 #include "kernels/attention_kernels.cuh"
 
 #include <cmath>
@@ -29,100 +30,158 @@ Tensor SelfAttention::forward(const Tensor& input){
         throw std::invalid_argument("SelfAttention embed dimension mismatch.");
     }
 
-    Tensor flatInput = LayerUtils::flatten3DTo2D(input);
+    Tensor flatInput;
+    Tensor qFlat;
+    Tensor kFlat;
+    Tensor vFlat;
+    Tensor Q;
+    Tensor K;
+    Tensor V;
+    Tensor attended;
+    Tensor attentionOutput;
+    Tensor projectedFlat;
 
-    Tensor qFlat = queryProj_.forward(flatInput);
-    Tensor kFlat = keyProj_.forward(flatInput);
-    Tensor vFlat = valueProj_.forward(flatInput);
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionFlattenForward, input.device());
 
-    Tensor Q = LayerUtils::unflatten2DTo3D(qFlat, batchSize, sequenceLength);
-    Tensor K = LayerUtils::unflatten2DTo3D(kFlat, batchSize, sequenceLength);
-    Tensor V = LayerUtils::unflatten2DTo3D(vFlat, batchSize, sequenceLength);
-
-    cachedInput_ = input;
-    cachedQ_ = Q;
-    cachedK_ = K;
-    cachedV_ = V;
-    cachedAttentionWeights_ = Tensor({ batchSize, sequenceLength, sequenceLength }, 0.0f);
-
-    if (input.device() == Device::CUDA) {
-        Q.toCUDA();
-        K.toCUDA();
-        V.toCUDA();
-        cachedAttentionWeights_.toCUDA();
-
-        Tensor attended({ batchSize, sequenceLength, embedDim_ }, 0.0f);
-        attended.toCUDA();
-
-        launchSelfAttentionForward(
-            cachedQ_.deviceData(),
-            cachedK_.deviceData(),
-            cachedV_.deviceData(),
-            cachedAttentionWeights_.deviceData(),
-            attended.deviceData(),
-            batchSize,
-            sequenceLength,
-            embedDim_
-        );
-
-        Tensor flatAttended = LayerUtils::flatten3DTo2D(attended);
-        Tensor projectedFlat = outputProj_.forward(flatAttended);
-
-        return LayerUtils::unflatten2DTo3D(
-            projectedFlat,
-            batchSize,
-            sequenceLength
-        );
+        flatInput = input;
+        flatInput.reshape({ batchSize * sequenceLength, embedDim_ });
     }
 
-    Tensor attentionOutput({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionQProjectionForward, input.device());
+        qFlat = queryProj_.forward(flatInput);
+    }
 
-    float scale = 1.0f / std::sqrt(static_cast<float>(embedDim_));
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionKProjectionForward, input.device());
+        kFlat = keyProj_.forward(flatInput);
+    }
 
-    for (size_t b = 0; b < batchSize; ++b) {
-        for (size_t t = 0; t < sequenceLength; ++t) {
-            std::vector<float> scores(sequenceLength, -1.0e9f);
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionVProjectionForward, input.device());
+        vFlat = valueProj_.forward(flatInput);
+    }
 
-            for (size_t j = 0; j <= t; ++j) {
-                float dot = 0.0f;
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionCacheForward, input.device());
 
-                for (size_t f = 0; f < embedDim_; ++f) {
-                    dot += Q.at({ b, t, f }) * K.at({ b, j, f });
-                }
+        qFlat.reshape({ batchSize, sequenceLength, embedDim_ });
+        kFlat.reshape({ batchSize, sequenceLength, embedDim_ });
+        vFlat.reshape({ batchSize, sequenceLength, embedDim_ });
 
-                scores[j] = dot * scale;
+        Q = std::move(qFlat);
+        K = std::move(kFlat);
+        V = std::move(vFlat);
+
+        cachedInput_ = input;
+        cachedQ_ = Q;
+        cachedK_ = K;
+        cachedV_ = V;
+        cachedAttentionWeights_ = Tensor({ batchSize, sequenceLength, sequenceLength }, 0.0f);
+    }
+
+    if (input.device() == Device::CUDA) {
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionKernelForward, input.device());
+
+            cachedQ_.toCUDA();
+            cachedK_.toCUDA();
+            cachedV_.toCUDA();
+            cachedAttentionWeights_.toCUDA();
+
+            attended = Tensor({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+            attended.toCUDA();
+
+            launchSelfAttentionForward(
+                cachedQ_.deviceData(),
+                cachedK_.deviceData(),
+                cachedV_.deviceData(),
+                cachedAttentionWeights_.deviceData(),
+                attended.deviceData(),
+                batchSize,
+                sequenceLength,
+                embedDim_
+            );
+
+            {
+                ScopedProfile profile(profiler_, ProfilePhase::AttentionOutputProjectionForward, attended.device());
+
+                attended.reshape({ batchSize * sequenceLength, embedDim_ });
+                projectedFlat = outputProj_.forward(attended);
             }
 
-            std::vector<float> weights = MathUtils::softmax(scores);
+            {
+                ScopedProfile profile(profiler_, ProfilePhase::AttentionUnflattenForward, projectedFlat.device());
 
-            for (size_t j = 0; j < sequenceLength; ++j) {
-                cachedAttentionWeights_.at({ b, t, j }) = weights[j];
+                projectedFlat.reshape({ batchSize, sequenceLength, embedDim_ });
             }
 
-            /*std::cout << "Token " << t << " weights: ";
-
-            for (size_t j = 0; j < sequenceLength; ++j) {
-                std::cout << weights[j] << " ";
-            }
-
-            std::cout << "\n";*/
-
-            for (size_t f = 0; f < embedDim_; ++f) {
-                float sum = 0.0f;
-
-                for (size_t j = 0; j <= t; ++j) {
-                    sum += weights[j] * V.at({ b, j, f });
-                }
-
-                attentionOutput.at({ b, t, f }) = sum;
-            }
+            return projectedFlat;
         }
     }
 
-    Tensor flatAttentionOutput = LayerUtils::flatten3DTo2D(attentionOutput);
-    Tensor projectedFlatOutput = outputProj_.forward(flatAttentionOutput);
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionKernelForward, input.device());
+        attentionOutput = Tensor({ batchSize, sequenceLength, embedDim_ }, 0.0f);
 
-    return LayerUtils::unflatten2DTo3D(projectedFlatOutput, batchSize, sequenceLength);
+        float scale = 1.0f / std::sqrt(static_cast<float>(embedDim_));
+
+        for (size_t b = 0; b < batchSize; ++b) {
+            for (size_t t = 0; t < sequenceLength; ++t) {
+                std::vector<float> scores(sequenceLength, -1.0e9f);
+
+                for (size_t j = 0; j <= t; ++j) {
+                    float dot = 0.0f;
+
+                    for (size_t f = 0; f < embedDim_; ++f) {
+                        dot += Q.at({ b, t, f }) * K.at({ b, j, f });
+                    }
+
+                    scores[j] = dot * scale;
+                }
+
+                std::vector<float> weights = MathUtils::softmax(scores);
+
+                for (size_t j = 0; j < sequenceLength; ++j) {
+                    cachedAttentionWeights_.at({ b, t, j }) = weights[j];
+                }
+
+                /*std::cout << "Token " << t << " weights: ";
+
+                for (size_t j = 0; j < sequenceLength; ++j) {
+                    std::cout << weights[j] << " ";
+                }
+
+                std::cout << "\n";*/
+
+                for (size_t f = 0; f < embedDim_; ++f) {
+                    float sum = 0.0f;
+
+                    for (size_t j = 0; j <= t; ++j) {
+                        sum += weights[j] * V.at({ b, j, f });
+                    }
+
+                    attentionOutput.at({ b, t, f }) = sum;
+                }
+            }
+        }
+
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionOutputProjectionForward, attentionOutput.device());
+
+            attentionOutput.reshape({ batchSize * sequenceLength, embedDim_ });
+            projectedFlat = outputProj_.forward(attentionOutput);
+        }
+
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionUnflattenForward, projectedFlat.device());
+
+            projectedFlat.reshape({ batchSize, sequenceLength, embedDim_ });
+        }
+
+        return projectedFlat;
+    }
 }
 
 Tensor SelfAttention::backward(const Tensor& gradOutput) {
@@ -133,132 +192,189 @@ Tensor SelfAttention::backward(const Tensor& gradOutput) {
     size_t batchSize = gradOutput.shape()[0];
     size_t sequenceLength = gradOutput.shape()[1];
 
-    Tensor flatGradOutput = LayerUtils::flatten3DTo2D(gradOutput);
-    Tensor gradAttentionFlat = outputProj_.backward(flatGradOutput);
-    Tensor gradAttention = LayerUtils::unflatten2DTo3D(
-        gradAttentionFlat,
-        batchSize,
-        sequenceLength
-    );
+    Tensor flatGradOutput;
+    Tensor gradConcatFlat;
+    Tensor gradConcat;
 
-    if (gradAttention.device() == Device::CUDA) {
-        cachedQ_.toCUDA();
-        cachedK_.toCUDA();
-        cachedV_.toCUDA();
-        cachedAttentionWeights_.toCUDA();
-        gradAttention.toCUDA();
+    Tensor gradQ;
+    Tensor gradK;
+    Tensor gradV;
 
-        Tensor gradQ({ batchSize, sequenceLength, embedDim_ }, 0.0f);
-        Tensor gradK({ batchSize, sequenceLength, embedDim_ }, 0.0f);
-        Tensor gradV({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+    Tensor gradInputQ;
+    Tensor gradInputK;
+    Tensor gradInputV;
 
-        gradQ.toCUDA();
-        gradK.toCUDA();
-        gradV.toCUDA();
+    Tensor gradInputFlat;
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionFlattenBackward, gradOutput.device());
 
-        launchSelfAttentionBackward(
-            cachedQ_.deviceData(),
-            cachedK_.deviceData(),
-            cachedV_.deviceData(),
-            cachedAttentionWeights_.deviceData(),
-            gradAttention.deviceData(),
-            gradQ.deviceData(),
-            gradK.deviceData(),
-            gradV.deviceData(),
-            batchSize,
-            sequenceLength,
-            embedDim_
-        );
-
-        Tensor gradQFlat = LayerUtils::flatten3DTo2D(gradQ);
-        Tensor gradKFlat = LayerUtils::flatten3DTo2D(gradK);
-        Tensor gradVFlat = LayerUtils::flatten3DTo2D(gradV);
-
-        Tensor gradInputQ = queryProj_.backward(gradQFlat);
-        Tensor gradInputK = keyProj_.backward(gradKFlat);
-        Tensor gradInputV = valueProj_.backward(gradVFlat);
-
-        Tensor gradInputFlat = MathUtils::add(
-            MathUtils::add(gradInputQ, gradInputK),
-            gradInputV
-        );
-
-        return LayerUtils::unflatten2DTo3D(
-            gradInputFlat,
-            batchSize,
-            sequenceLength
-        );
+        flatGradOutput = gradOutput;
+        flatGradOutput.reshape({ batchSize * sequenceLength, embedDim_ });
     }
 
-    Tensor gradQ({ batchSize, sequenceLength, embedDim_ }, 0.0f);
-    Tensor gradK({ batchSize, sequenceLength, embedDim_ }, 0.0f);
-    Tensor gradV({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionOutputProjectionBackward, gradOutput.device());
 
-    float scale = 1.0f / std::sqrt(static_cast<float>(embedDim_));
+        gradConcatFlat = outputProj_.backward(flatGradOutput);
+        gradConcatFlat.reshape({ batchSize, sequenceLength, embedDim_ });
+        gradConcat = std::move(gradConcatFlat);
+    }
 
-    for (size_t b = 0; b < batchSize; ++b) {
-        for (size_t t = 0; t < sequenceLength; ++t) {
-            std::vector<float> gradWeights(sequenceLength, 0.0f);
+    if (gradConcat.device() == Device::CUDA) {
 
-            for (size_t j = 0; j <= t; ++j) {
-                float dot = 0.0f;
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionKernelBackward, gradConcat.device());
 
-                for (size_t f = 0; f < embedDim_; ++f) {
-                    dot += gradAttention.at({ b, t, f }) *
-                        cachedV_.at({ b, j, f });
+            cachedQ_.toCUDA();
+            cachedK_.toCUDA();
+            cachedV_.toCUDA();
+            cachedAttentionWeights_.toCUDA();
+            gradConcat.toCUDA();
 
-                    gradV.at({ b, j, f }) +=
-                        cachedAttentionWeights_.at({ b, t, j }) *
-                        gradAttention.at({ b, t, f });
-                }
+            gradQ = Tensor({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+            gradK = Tensor({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+            gradV = Tensor({ batchSize, sequenceLength, embedDim_ }, 0.0f);
 
-                gradWeights[j] = dot;
+            gradQ.toCUDA();
+            gradK.toCUDA();
+            gradV.toCUDA();
+
+            launchSelfAttentionBackward(
+                cachedQ_.deviceData(),
+                cachedK_.deviceData(),
+                cachedV_.deviceData(),
+                cachedAttentionWeights_.deviceData(),
+                gradConcat.deviceData(),
+                gradQ.deviceData(),
+                gradK.deviceData(),
+                gradV.deviceData(),
+                batchSize,
+                sequenceLength,
+                embedDim_
+            );
+
+            gradQ.reshape({ batchSize * sequenceLength, embedDim_ });
+            gradK.reshape({ batchSize * sequenceLength, embedDim_ });
+            gradV.reshape({ batchSize * sequenceLength, embedDim_ });
+
+            {
+                ScopedProfile profile(profiler_, ProfilePhase::AttentionQProjectionBackward, gradQ.device());
+                gradInputQ = queryProj_.backward(gradQ);
             }
 
-            float weightedSum = 0.0f;
-
-            for (size_t j = 0; j <= t; ++j) {
-                weightedSum +=
-                    gradWeights[j] *
-                    cachedAttentionWeights_.at({ b, t, j });
+            {
+                ScopedProfile profile(profiler_, ProfilePhase::AttentionKProjectionBackward, gradK.device());
+                gradInputK = keyProj_.backward(gradK);
             }
 
-            for (size_t j = 0; j <= t; ++j) {
-                float gradScore =
-                    cachedAttentionWeights_.at({ b, t, j }) *
-                    (gradWeights[j] - weightedSum);
-
-                gradScore *= scale;
-
-                for (size_t f = 0; f < embedDim_; ++f) {
-                    gradQ.at({ b, t, f }) +=
-                        gradScore * cachedK_.at({ b, j, f });
-
-                    gradK.at({ b, j, f }) +=
-                        gradScore * cachedQ_.at({ b, t, f });
-                }
+            {
+                ScopedProfile profile(profiler_, ProfilePhase::AttentionVProjectionBackward, gradV.device());
+                gradInputV = valueProj_.backward(gradV);
             }
+
+            gradInputFlat = MathUtils::add(
+                MathUtils::add(gradInputQ, gradInputK),
+                gradInputV
+            );
+
+            gradInputFlat.reshape({ batchSize, sequenceLength, embedDim_ });
+            return gradInputFlat;
         }
     }
 
-    Tensor gradQFlat = LayerUtils::flatten3DTo2D(gradQ);
-    Tensor gradKFlat = LayerUtils::flatten3DTo2D(gradK);
-    Tensor gradVFlat = LayerUtils::flatten3DTo2D(gradV);
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionKernelBackward, gradConcat.device());
 
-    Tensor gradInputQ = queryProj_.backward(gradQFlat);
-    Tensor gradInputK = keyProj_.backward(gradKFlat);
-    Tensor gradInputV = valueProj_.backward(gradVFlat);
+        gradQ = Tensor({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+        gradK = Tensor({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+        gradV = Tensor({ batchSize, sequenceLength, embedDim_ }, 0.0f);
 
-    Tensor gradInputFlat = MathUtils::add(
-        MathUtils::add(gradInputQ, gradInputK),
-        gradInputV
-    );
+        float scale = 1.0f / std::sqrt(static_cast<float>(embedDim_));
 
-    return LayerUtils::unflatten2DTo3D(
-        gradInputFlat,
-        batchSize,
-        sequenceLength
-    );
+        for (size_t b = 0; b < batchSize; ++b) {
+            for (size_t t = 0; t < sequenceLength; ++t) {
+                std::vector<float> gradWeights(sequenceLength, 0.0f);
+
+                for (size_t j = 0; j <= t; ++j) {
+                    float dot = 0.0f;
+
+                    for (size_t f = 0; f < embedDim_; ++f) {
+                        dot += gradConcat.at({ b, t, f }) *
+                            cachedV_.at({ b, j, f });
+
+                        gradV.at({ b, j, f }) +=
+                            cachedAttentionWeights_.at({ b, t, j }) *
+                            gradConcat.at({ b, t, f });
+                    }
+
+                    gradWeights[j] = dot;
+                }
+
+                float weightedSum = 0.0f;
+
+                for (size_t j = 0; j <= t; ++j) {
+                    weightedSum +=
+                        gradWeights[j] *
+                        cachedAttentionWeights_.at({ b, t, j });
+                }
+
+                for (size_t j = 0; j <= t; ++j) {
+                    float gradScore =
+                        cachedAttentionWeights_.at({ b, t, j }) *
+                        (gradWeights[j] - weightedSum);
+
+                    gradScore *= scale;
+
+                    for (size_t f = 0; f < embedDim_; ++f) {
+                        gradQ.at({ b, t, f }) +=
+                            gradScore * cachedK_.at({ b, j, f });
+
+                        gradK.at({ b, j, f }) +=
+                            gradScore * cachedQ_.at({ b, t, f });
+                    }
+                }
+            }
+        }
+
+        gradQ.reshape({ batchSize * sequenceLength, embedDim_ });
+        gradK.reshape({ batchSize * sequenceLength, embedDim_ });
+        gradV.reshape({ batchSize * sequenceLength, embedDim_ });
+
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionQProjectionBackward, gradQ.device());
+            gradInputQ = queryProj_.backward(gradQ);
+        }
+
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionKProjectionBackward, gradK.device());
+            gradInputK = keyProj_.backward(gradK);
+        }
+
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionVProjectionBackward, gradV.device());
+            gradInputV = valueProj_.backward(gradV);
+        }
+
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionGradientMergeBackward, gradInputQ.device());
+
+            gradInputFlat = MathUtils::add(
+                MathUtils::add(gradInputQ, gradInputK),
+                gradInputV
+            );
+        }
+
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionUnflattenBackward, gradInputFlat.device());
+
+            gradInputFlat.reshape({ batchSize, sequenceLength, embedDim_ });
+        }
+        return gradInputFlat;
+    }
+}
+
+void SelfAttention::setProfiler(TrainingProfiler* profiler) {
+    profiler_ = profiler;
 }
 
 std::vector<Parameter*> SelfAttention::parameters() {
@@ -300,97 +416,157 @@ Tensor MultiHeadAttention::forward(const Tensor& input){
         throw std::invalid_argument("MultiHeadAttention embed dimension mismatch.");
     }
 
-    Tensor flatInput = LayerUtils::flatten3DTo2D(input);
+    Tensor flatInput;
+    Tensor qFlat;
+    Tensor kFlat;
+    Tensor vFlat;
+    Tensor Q;
+    Tensor K;
+    Tensor V;
+    Tensor attended;
+    Tensor attentionOutput;
+    Tensor projectedFlat;
 
-    Tensor qFlat = queryProj_.forward(flatInput);
-    Tensor kFlat = keyProj_.forward(flatInput);
-    Tensor vFlat = valueProj_.forward(flatInput);
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionFlattenForward, input.device());
 
-    Tensor Q = LayerUtils::unflatten2DTo3D(qFlat, batchSize, sequenceLength);
-    Tensor K = LayerUtils::unflatten2DTo3D(kFlat, batchSize, sequenceLength);
-    Tensor V = LayerUtils::unflatten2DTo3D(vFlat, batchSize, sequenceLength);
-
-    cachedInput_ = input;
-    cachedQ_ = Q;
-    cachedK_ = K;
-    cachedV_ = V;
-    cachedAttentionWeights_ = Tensor({ batchSize, numHeads_, sequenceLength, sequenceLength }, 0.0f);
-
-    if (input.device() == Device::CUDA) {
-        Q.toCUDA();
-        K.toCUDA();
-        V.toCUDA();
-        cachedAttentionWeights_.toCUDA();
-
-        Tensor attended({ batchSize, sequenceLength, embedDim_ }, 0.0f);
-        attended.toCUDA();
-
-        launchMultiHeadAttentionForward(
-            cachedQ_.deviceData(),
-            cachedK_.deviceData(),
-            cachedV_.deviceData(),
-            cachedAttentionWeights_.deviceData(),
-            attended.deviceData(),
-            batchSize,
-            sequenceLength,
-            numHeads_,
-            headDim_
-        );
-
-        Tensor flatAttended = LayerUtils::flatten3DTo2D(attended);
-        Tensor projectedFlat = outputProj_.forward(flatAttended);
-
-        return LayerUtils::unflatten2DTo3D(
-            projectedFlat,
-            batchSize,
-            sequenceLength
-        );
+        flatInput = input;
+        flatInput.reshape({ batchSize * sequenceLength, embedDim_ });
     }
 
-    Tensor attentionOutput({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionQProjectionForward, input.device());
+        qFlat = queryProj_.forward(flatInput);
+    }
+
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionKProjectionForward, input.device());
+        kFlat = keyProj_.forward(flatInput);
+    }
+
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionVProjectionForward, input.device());
+        vFlat = valueProj_.forward(flatInput);
+    }
+
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionCacheForward, input.device());
+
+        qFlat.reshape({ batchSize, sequenceLength, embedDim_ });
+        kFlat.reshape({ batchSize, sequenceLength, embedDim_ });
+        vFlat.reshape({ batchSize, sequenceLength, embedDim_ });
+
+        Q = std::move(qFlat);
+        K = std::move(kFlat);
+        V = std::move(vFlat);
+
+        cachedInput_ = input;
+        cachedQ_ = Q;
+        cachedK_ = K;
+        cachedV_ = V;
+        cachedAttentionWeights_ = Tensor({ batchSize, numHeads_, sequenceLength, sequenceLength }, 0.0f);
+    }
+
+    if (input.device() == Device::CUDA) {
+        cachedQ_.toCUDA();
+        cachedK_.toCUDA();
+        cachedV_.toCUDA();
+        cachedAttentionWeights_.toCUDA();
+
+        attended = Tensor({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+        attended.toCUDA();
+
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionKernelForward, input.device());
+
+            launchMultiHeadAttentionForward(
+                cachedQ_.deviceData(),
+                cachedK_.deviceData(),
+                cachedV_.deviceData(),
+                cachedAttentionWeights_.deviceData(),
+                attended.deviceData(),
+                batchSize,
+                sequenceLength,
+                numHeads_,
+                headDim_
+            );
+        }
+
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionOutputProjectionForward, attended.device());
+
+            attended.reshape({ batchSize * sequenceLength, embedDim_ });
+            projectedFlat = outputProj_.forward(attended);
+        }
+
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionUnflattenForward, projectedFlat.device());
+
+            projectedFlat.reshape({ batchSize, sequenceLength, embedDim_ });
+        }
+
+        return projectedFlat;
+        
+    }
+
+    attentionOutput = Tensor({ batchSize, sequenceLength, embedDim_ }, 0.0f);
 
     float scale = 1.0f / std::sqrt(static_cast<float>(headDim_));
 
-    for (size_t b = 0; b < batchSize; ++b) {
-        for (size_t h = 0; h < numHeads_; ++h) {
-            for (size_t t = 0; t < sequenceLength; ++t) {
-                std::vector<float> scores(sequenceLength, -1.0e9f);
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionKernelForward, input.device());
 
-                for (size_t j = 0; j <= t; ++j) {
-                    float dot = 0.0f;
+        for (size_t b = 0; b < batchSize; ++b) {
+            for (size_t h = 0; h < numHeads_; ++h) {
+                for (size_t t = 0; t < sequenceLength; ++t) {
+                    std::vector<float> scores(sequenceLength, -1.0e9f);
+
+                    for (size_t j = 0; j <= t; ++j) {
+                        float dot = 0.0f;
+
+                        for (size_t f = 0; f < headDim_; ++f) {
+                            size_t idx = h * headDim_ + f;
+                            dot += Q.at({ b, t, idx }) * K.at({ b, j, idx });
+                        }
+
+                        scores[j] = dot * scale;
+                    }
+
+                    std::vector<float> weights = MathUtils::softmax(scores);
+
+                    for (size_t j = 0; j < sequenceLength; ++j) {
+                        cachedAttentionWeights_.at({ b, h, t, j }) = weights[j];
+                    }
 
                     for (size_t f = 0; f < headDim_; ++f) {
                         size_t idx = h * headDim_ + f;
-                        dot += Q.at({ b, t, idx }) * K.at({ b, j, idx });
+                        float sum = 0.0f;
+
+                        for (size_t j = 0; j <= t; ++j) {
+                            sum += weights[j] * V.at({ b, j, idx });
+                        }
+
+                        attentionOutput.at({ b, t, idx }) = sum;
                     }
-
-                    scores[j] = dot * scale;
-                }
-
-                std::vector<float> weights = MathUtils::softmax(scores);
-
-                for (size_t j = 0; j < sequenceLength; ++j) {
-                    cachedAttentionWeights_.at({ b, h, t, j }) = weights[j];
-                }
-
-                for (size_t f = 0; f < headDim_; ++f) {
-                    size_t idx = h * headDim_ + f;
-                    float sum = 0.0f;
-
-                    for (size_t j = 0; j <= t; ++j) {
-                        sum += weights[j] * V.at({ b, j, idx });
-                    }
-
-                    attentionOutput.at({ b, t, idx }) = sum;
                 }
             }
         }
     }
 
-    Tensor flatAttentionOutput = LayerUtils::flatten3DTo2D(attentionOutput);
-    Tensor projectedFlatOutput = outputProj_.forward(flatAttentionOutput);
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionOutputProjectionForward, attentionOutput.device());
 
-    return LayerUtils::unflatten2DTo3D(projectedFlatOutput, batchSize, sequenceLength);
+            attentionOutput.reshape({ batchSize * sequenceLength, embedDim_ });
+            projectedFlat = outputProj_.forward(attentionOutput);
+        }
+
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionUnflattenForward, projectedFlat.device());
+
+            projectedFlat.reshape({ batchSize, sequenceLength, embedDim_ });
+        }
+
+        return projectedFlat;
 }
 
 Tensor MultiHeadAttention::backward(const Tensor& gradOutput) {
@@ -405,14 +581,34 @@ Tensor MultiHeadAttention::backward(const Tensor& gradOutput) {
     size_t batchSize = gradOutput.shape()[0];
     size_t sequenceLength = gradOutput.shape()[1];
 
-    Tensor flatGradOutput = LayerUtils::flatten3DTo2D(gradOutput);
-    Tensor gradConcatFlat = outputProj_.backward(flatGradOutput);
+    Tensor flatGradOutput;
+    Tensor gradConcatFlat;
+    Tensor gradConcat;
 
-    Tensor gradConcat = LayerUtils::unflatten2DTo3D(
-        gradConcatFlat,
-        batchSize,
-        sequenceLength
-    );
+    Tensor gradQ;
+    Tensor gradK;
+    Tensor gradV;
+
+    Tensor gradInputQ;
+    Tensor gradInputK;
+    Tensor gradInputV;
+
+    Tensor gradInputFlat;
+
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionFlattenBackward, gradOutput.device());
+
+        flatGradOutput = gradOutput;
+        flatGradOutput.reshape({ batchSize * sequenceLength, embedDim_ });
+    }
+
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionOutputProjectionBackward, gradOutput.device());
+
+        gradConcatFlat = outputProj_.backward(flatGradOutput);
+        gradConcatFlat.reshape({ batchSize, sequenceLength, embedDim_ });
+        gradConcat = std::move(gradConcatFlat);
+    }
 
     if (gradConcat.device() == Device::CUDA) {
         cachedQ_.toCUDA();
@@ -421,124 +617,167 @@ Tensor MultiHeadAttention::backward(const Tensor& gradOutput) {
         cachedAttentionWeights_.toCUDA();
         gradConcat.toCUDA();
 
-        Tensor gradQ({ batchSize, sequenceLength, embedDim_ }, 0.0f);
-        Tensor gradK({ batchSize, sequenceLength, embedDim_ }, 0.0f);
-        Tensor gradV({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+        gradQ = Tensor({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+        gradK = Tensor({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+        gradV = Tensor({ batchSize, sequenceLength, embedDim_ }, 0.0f);
 
         gradQ.toCUDA();
         gradK.toCUDA();
         gradV.toCUDA();
 
-        launchMultiHeadAttentionBackward(
-            cachedQ_.deviceData(),
-            cachedK_.deviceData(),
-            cachedV_.deviceData(),
-            cachedAttentionWeights_.deviceData(),
-            gradConcat.deviceData(),
-            gradQ.deviceData(),
-            gradK.deviceData(),
-            gradV.deviceData(),
-            batchSize,
-            sequenceLength,
-            numHeads_,
-            headDim_
-        );
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionKernelBackward, gradConcat.device());
+            launchMultiHeadAttentionBackward(
+                cachedQ_.deviceData(),
+                cachedK_.deviceData(),
+                cachedV_.deviceData(),
+                cachedAttentionWeights_.deviceData(),
+                gradConcat.deviceData(),
+                gradQ.deviceData(),
+                gradK.deviceData(),
+                gradV.deviceData(),
+                batchSize,
+                sequenceLength,
+                numHeads_,
+                headDim_
+            );
+        }
 
-        Tensor gradQFlat = LayerUtils::flatten3DTo2D(gradQ);
-        Tensor gradKFlat = LayerUtils::flatten3DTo2D(gradK);
-        Tensor gradVFlat = LayerUtils::flatten3DTo2D(gradV);
+        gradQ.reshape({ batchSize * sequenceLength, embedDim_ });
+        gradK.reshape({ batchSize * sequenceLength, embedDim_ });
+        gradV.reshape({ batchSize * sequenceLength, embedDim_ });
 
-        Tensor gradInputQ = queryProj_.backward(gradQFlat);
-        Tensor gradInputK = keyProj_.backward(gradKFlat);
-        Tensor gradInputV = valueProj_.backward(gradVFlat);
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionQProjectionBackward, gradQ.device());
+            gradInputQ = queryProj_.backward(gradQ);
+        }
 
-        Tensor gradInputFlat = MathUtils::add(
-            MathUtils::add(gradInputQ, gradInputK),
-            gradInputV
-        );
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionKProjectionBackward, gradK.device());
+            gradInputK = keyProj_.backward(gradK);
+        }
 
-        return LayerUtils::unflatten2DTo3D(
-            gradInputFlat,
-            batchSize,
-            sequenceLength
-        );
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionVProjectionBackward, gradV.device());
+            gradInputV = valueProj_.backward(gradV);
+        }
+
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionGradientMergeBackward, gradInputQ.device());
+
+            gradInputFlat = MathUtils::add(
+                MathUtils::add(gradInputQ, gradInputK),
+                gradInputV
+            );
+        }
+
+        {
+            ScopedProfile profile(profiler_, ProfilePhase::AttentionUnflattenBackward, gradInputFlat.device());
+
+            gradInputFlat.reshape({ batchSize, sequenceLength, embedDim_ });
+        }
+        return gradInputFlat;
     }
 
-    Tensor gradQ({ batchSize, sequenceLength, embedDim_ }, 0.0f);
-    Tensor gradK({ batchSize, sequenceLength, embedDim_ }, 0.0f);
-    Tensor gradV({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+    gradQ = Tensor({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+    gradK = Tensor({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+    gradV = Tensor({ batchSize, sequenceLength, embedDim_ }, 0.0f);
 
     float scale = 1.0f / std::sqrt(static_cast<float>(headDim_));
 
-    for (size_t b = 0; b < batchSize; ++b) {
-        for (size_t h = 0; h < numHeads_; ++h) {
-            for (size_t t = 0; t < sequenceLength; ++t) {
-                std::vector<float> gradWeights(sequenceLength, 0.0f);
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionKernelBackward, gradConcat.device());
 
-                for (size_t j = 0; j <= t; ++j) {
-                    float dot = 0.0f;
+        for (size_t b = 0; b < batchSize; ++b) {
+            for (size_t h = 0; h < numHeads_; ++h) {
+                for (size_t t = 0; t < sequenceLength; ++t) {
+                    std::vector<float> gradWeights(sequenceLength, 0.0f);
 
-                    for (size_t f = 0; f < headDim_; ++f) {
-                        size_t globalF = h * headDim_ + f;
+                    for (size_t j = 0; j <= t; ++j) {
+                        float dot = 0.0f;
 
-                        dot += gradConcat.at({ b, t, globalF }) *
-                            cachedV_.at({ b, j, globalF });
+                        for (size_t f = 0; f < headDim_; ++f) {
+                            size_t globalF = h * headDim_ + f;
 
-                        gradV.at({ b, j, globalF }) +=
-                            cachedAttentionWeights_.at({ b, h, t, j }) *
-                            gradConcat.at({ b, t, globalF });
+                            dot += gradConcat.at({ b, t, globalF }) *
+                                cachedV_.at({ b, j, globalF });
+
+                            gradV.at({ b, j, globalF }) +=
+                                cachedAttentionWeights_.at({ b, h, t, j }) *
+                                gradConcat.at({ b, t, globalF });
+                        }
+
+                        gradWeights[j] = dot;
                     }
 
-                    gradWeights[j] = dot;
-                }
+                    float weightedSum = 0.0f;
 
-                float weightedSum = 0.0f;
+                    for (size_t j = 0; j <= t; ++j) {
+                        weightedSum +=
+                            gradWeights[j] *
+                            cachedAttentionWeights_.at({ b, h, t, j });
+                    }
 
-                for (size_t j = 0; j <= t; ++j) {
-                    weightedSum +=
-                        gradWeights[j] *
-                        cachedAttentionWeights_.at({ b, h, t, j });
-                }
+                    for (size_t j = 0; j <= t; ++j) {
+                        float gradScore =
+                            cachedAttentionWeights_.at({ b, h, t, j }) *
+                            (gradWeights[j] - weightedSum);
 
-                for (size_t j = 0; j <= t; ++j) {
-                    float gradScore =
-                        cachedAttentionWeights_.at({ b, h, t, j }) *
-                        (gradWeights[j] - weightedSum);
+                        gradScore *= scale;
 
-                    gradScore *= scale;
+                        for (size_t f = 0; f < headDim_; ++f) {
+                            size_t globalF = h * headDim_ + f;
 
-                    for (size_t f = 0; f < headDim_; ++f) {
-                        size_t globalF = h * headDim_ + f;
+                            gradQ.at({ b, t, globalF }) +=
+                                gradScore * cachedK_.at({ b, j, globalF });
 
-                        gradQ.at({ b, t, globalF }) +=
-                            gradScore * cachedK_.at({ b, j, globalF });
-
-                        gradK.at({ b, j, globalF }) +=
-                            gradScore * cachedQ_.at({ b, t, globalF });
+                            gradK.at({ b, j, globalF }) +=
+                                gradScore * cachedQ_.at({ b, t, globalF });
+                        }
                     }
                 }
             }
         }
     }
 
-    Tensor gradQFlat = LayerUtils::flatten3DTo2D(gradQ);
-    Tensor gradKFlat = LayerUtils::flatten3DTo2D(gradK);
-    Tensor gradVFlat = LayerUtils::flatten3DTo2D(gradV);
+    gradQ.reshape({ batchSize * sequenceLength, embedDim_ });
+    gradK.reshape({ batchSize * sequenceLength, embedDim_ });
+    gradV.reshape({ batchSize * sequenceLength, embedDim_ });
 
-    Tensor gradInputQ = queryProj_.backward(gradQFlat);
-    Tensor gradInputK = keyProj_.backward(gradKFlat);
-    Tensor gradInputV = valueProj_.backward(gradVFlat);
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionQProjectionBackward, gradQ.device());
+        gradInputQ = queryProj_.backward(gradQ);
+    }
 
-    Tensor gradInputFlat = MathUtils::add(
-        MathUtils::add(gradInputQ, gradInputK),
-        gradInputV
-    );
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionKProjectionBackward, gradK.device());
+        gradInputK = keyProj_.backward(gradK);
+    }
 
-    return LayerUtils::unflatten2DTo3D(
-        gradInputFlat,
-        batchSize,
-        sequenceLength
-    );
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionVProjectionBackward, gradV.device());
+        gradInputV = valueProj_.backward(gradV);
+    }
+
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionGradientMergeBackward, gradInputQ.device());
+
+        gradInputFlat = MathUtils::add(
+            MathUtils::add(gradInputQ, gradInputK),
+            gradInputV
+        );
+    }
+
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionUnflattenBackward, gradInputFlat.device());
+
+        gradInputFlat.reshape({ batchSize, sequenceLength, embedDim_ });
+    }
+        return gradInputFlat;
+}
+
+void MultiHeadAttention::setProfiler(TrainingProfiler* profiler) {
+    profiler_ = profiler;
 }
 
 std::vector<Parameter*> MultiHeadAttention::parameters() {

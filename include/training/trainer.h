@@ -16,6 +16,8 @@ class TrainableModel {
 public:
     virtual ~TrainableModel() = default;
 
+    virtual void setProfiler(TrainingProfiler* profiler) {};
+
     virtual Tensor forward(const Tensor& inputs) = 0;
     virtual void backward(const Tensor& gradOutput) = 0;
     virtual std::vector<Parameter*> parameters() = 0;

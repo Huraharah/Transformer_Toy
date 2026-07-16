@@ -26,6 +26,8 @@ private:
 
 	TransformerModelConfig config_;
 
+    TrainingProfiler* profiler_ = nullptr;
+
     std::vector<TransformerBlock> blocks_;
 
     LayerNorm finalNorm_;
@@ -60,6 +62,8 @@ public:
         const GenerationConfig& config,
         Random& rng
         );
+
+    void setProfiler(TrainingProfiler* profiler) override;
 
     Tensor forward(const Tensor& tokenIds) override;
     void backward(const Tensor& gradOutput) override;

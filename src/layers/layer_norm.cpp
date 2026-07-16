@@ -12,6 +12,10 @@ LayerNorm::LayerNorm(size_t featureDim, float epsilon)
     beta_(Tensor({ featureDim }, 0.0f), "layernorm.beta") {
 }
 
+void LayerNorm::setProfiler(TrainingProfiler* profiler) {
+    profiler_ = profiler;
+}
+
 Tensor LayerNorm::forward(const Tensor& input) {
     if (input.rank() != 3) {
         throw std::invalid_argument(

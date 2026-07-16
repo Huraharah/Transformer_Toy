@@ -6,6 +6,7 @@
 #include "core/layer_utils.h"
 #include "layers/config.h"
 
+class TrainingProfiler;
 
 inline std::string attentionTypeToString(AttentionType type) {
     switch (type) {
@@ -35,11 +36,16 @@ private:
 	Tensor cachedV_;
 	Tensor cachedAttentionWeights_;
 
+    TrainingProfiler* profiler_ = nullptr;
+
 public:
     SelfAttention(size_t embedDim, Random& rng);
 
     Tensor forward(const Tensor& input);
     Tensor backward(const Tensor& gradOutput);
+
+    void setProfiler(TrainingProfiler* profiler);
+
 	std::vector<Parameter*> parameters();   
 };
 
@@ -62,10 +68,15 @@ private:
     Tensor cachedV_;
     Tensor cachedAttentionWeights_;
 
+    TrainingProfiler* profiler_ = nullptr;
+
 public:
     explicit MultiHeadAttention(const AttentionConfig& config, Random& rng);
 
     Tensor forward(const Tensor& input);
     Tensor backward(const Tensor& gradOutput);
+
+    void setProfiler(TrainingProfiler* profiler);
+
     std::vector<Parameter*> parameters();
 };

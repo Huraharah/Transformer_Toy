@@ -351,9 +351,19 @@ namespace {
 
         constexpr float trainingFraction = 0.90f;
 
+        TokenizerConfig tokenizer;
+        tokenizer.type = TokenizerType::BPE;
+        tokenizer.vocabSize = 512;
+        tokenizer.minFrequency = 2;
+        tokenizer.modelPath = "./tokenizers/complete_shakespeare_bpe_512.tok";
+        tokenizer.trainIfMissing = true;
+
+        std::filesystem::create_directories("./tokenizers");
+
         TextDataset dataset(
-            "data/shakespeare.txt",
-            contextLength
+            "data/shakespeare_complete_cleaned.txt",
+            contextLength,
+            tokenizer
         );
 
         const std::vector<int> allTokenIds =
@@ -405,14 +415,18 @@ namespace {
 
         std::cout
             << "[DATASET]\n"
-            << "  characters/tokens: "
+            << "  raw characters: "
+            << dataset.rawText().size() << "\n"
+            << "  encoded tokens: "
             << allTokenIds.size() << "\n"
             << "  vocabulary: "
             << dataset.vocabSize() << "\n"
+            << "  compression ratio: "
+            << static_cast<double>(dataset.rawText().size()) /
+            static_cast<double>(allTokenIds.size())
+            << "\n"
             << "  training tokens: "
             << splitIndex << "\n"
-            << "  validation tokens: "
-            << allTokenIds.size() - splitIndex << "\n"
             << "  training batches: "
             << trainingBuild.batches.size() << "\n"
             << "  validation batches: "
@@ -428,7 +442,20 @@ namespace {
             << "  train tail length: "
             << trainingBuild.tailSequenceLength << "\n"
             << "  validation tail length: "
-            << validationBuild.tailSequenceLength << "\n";
+            << validationBuild.tailSequenceLength << "\n"
+            << "  tokenizer: BPE\n"
+            << "  requested BPE vocabulary: "
+            << tokenizer.vocabSize << "\n"
+            << "  actual vocabulary: "
+            << dataset.vocabSize() << "\n"
+            << "  raw characters: "
+            << dataset.rawText().size() << "\n"
+            << "  encoded tokens: "
+            << allTokenIds.size() << "\n"
+            << "  compression ratio: "
+            << static_cast<double>(dataset.rawText().size()) /
+            static_cast<double>(allTokenIds.size())
+            << "\n";
 
         TrainingConfig config;
 
@@ -443,11 +470,11 @@ namespace {
 
         config.runName =
             device == Device::CUDA
-            ? "tiny_shakespeare_cuda_shakedown"
-            : "tiny_shakespeare_cpu_shakedown";
+            ? "full_shakespeare_cuda_bpe_512_shakedown"
+            : "full_shakespeare_cpu_bpe_512_shakedown";
 
         config.checkpointDirectory =
-            "./shakedown_checkpoints";
+            "./shakedown_checkpoints_complete_bpe_512";
 
         // Periodic checkpoints
         config.enableCheckpointing = true;
@@ -649,9 +676,15 @@ namespace {
             );
         }
 
-        if (snapshots.size() != completedEpochs) {
+        const size_t expectedSnapshots =
+            completedEpochs /
+            static_cast<size_t>(
+                config.generationEveryEpochs
+                );
+
+        if (snapshots.size() != expectedSnapshots) {
             throw std::runtime_error(
-                "Shakedown did not produce one generation snapshot per epoch."
+                "Shakedown produced an unexpected number of generation snapshots."
             );
         }
 

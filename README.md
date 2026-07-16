@@ -100,7 +100,9 @@ Completed:
 
 ## Milestone 4.5 - Tokenization updates, optimizations
 
-Planned:
+Status: Complete
+
+Completed:
 - Include other tokenization options (BPE, subword, word)
 - Perform optimization pass (both CUDA and CPU optimizations for using more of available resources)
 	- tokens/sec on CPU and CUDA
@@ -111,7 +113,37 @@ Planned:
 	- validation loss per wall-clock hour
 - Full transformer build on full Shakespeare corpus
 
-## Milestone 5 — Architectural Experiments
+## Milestone 5 - Python Bindings
+
+Status: In Progress
+
+Planned:
+- Set up pybind11 and the Python extension build
+- Validate the native module
+  - import the module from Python
+  - report CUDA availability
+  - confirm C++ exceptions propagate correctly
+- Add inference-only bindings
+  - expose tokenizer configuration/loading
+  - construct a model from configuration
+  - load a trained checkpoint
+  - generate text from Python
+- Add a simple training interface
+  - construct dataset, model, optimizer, and training session
+  - train from a corpus path
+  - return training history and checkpoint information
+- Expose advanced configuration
+  - model architecture
+  - tokenizer settings
+  - training controls
+  - generation settings
+  - device selection
+- Package and usage validation
+  - stable Python package layout
+  - Release build installation
+  - minimal inference and training examples
+
+## Milestone 6 — Architectural Experiments
 
 Planned:
 - Deep FFN mixer
@@ -122,7 +154,7 @@ Planned:
 - Single-head vs multi-head comparisons
 - Mixed attention-depth experiments
 
-## Milestone 6 — Task Adapters
+## Milestone 7 — Task Adapters
 
 Planned:
 - Text generation task
@@ -131,7 +163,7 @@ Planned:
 - Graphormer-lite for graph tasks
 - Possible image recognition adapter
 
-## Milestone 7 — Research Evaluation
+## Milestone 8 — Research Evaluation
 
 Planned:
 - Compare architectures across task types

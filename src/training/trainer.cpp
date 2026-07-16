@@ -45,19 +45,70 @@ void Trainer::train(
         );
     }
 
+    const Device activeDevice =
+        resolveDevice(config.device);
+
+    /*
+        Configure and reset the profiler before attaching it to the
+        model hierarchy.
+    */
+    profiler_.setEnabled(
+        config.enableProfiling
+    );
+
+    profiler_.setSynchronizeCudaPhases(
+        config.enableProfiling &&
+        config.synchronizeProfilingPhases
+    );
+
+    profiler_.reset();
+
+    /*
+        Attach the profiler to the model for the duration of training.
+
+        The local guard ensures the model is detached even if training
+        throws an exception.
+    */
+    class ModelProfilerGuard {
+    private:
+        TrainableModel& model_;
+
+    public:
+        ModelProfilerGuard(
+            TrainableModel& model,
+            TrainingProfiler* profiler
+        )
+            : model_(model) {
+            model_.setProfiler(profiler);
+        }
+
+        ~ModelProfilerGuard() {
+            model_.setProfiler(nullptr);
+        }
+
+        ModelProfilerGuard(
+            const ModelProfilerGuard&
+        ) = delete;
+
+        ModelProfilerGuard& operator=(
+            const ModelProfilerGuard&
+            ) = delete;
+    };
+
+    ModelProfilerGuard modelProfilerGuard(
+        model,
+        config.enableProfiling
+        ? &profiler_
+        : nullptr
+    );
+
     std::vector<Parameter*> params =
         model.parameters();
 
-    Device activeDevice =
-        resolveDevice(config.device);
-
-    if (activeDevice == Device::CUDA) {
-        setCudaSynchronizationEnabled(
-            config.enableProfiling &&
-            config.synchronizeProfilingPhases
-        );
-    }
-
+    /*
+        Move model parameters to the selected device once before
+        beginning the timed training loop.
+    */
     for (Parameter* parameter : params) {
         if (!parameter) {
             continue;
@@ -73,15 +124,31 @@ void Trainer::train(
         }
     }
 
-    profiler_.reset();
-    profiler_.start(ProfilePhase::TotalTraining);
+    /*
+        Ensure parameter movement is complete before TotalTraining
+        begins. Parameter setup is intentionally excluded from the
+        training benchmark.
+    */
+    if (
+        config.enableProfiling &&
+        config.synchronizeProfilingPhases &&
+        activeDevice == Device::CUDA
+        ) {
+        cudaSync();
+    }
+
+    profiler_.start(
+        ProfilePhase::TotalTraining
+    );
 
     for (
         int epoch = 1;
         epoch <= config.epochs;
         ++epoch
         ) {
-        profiler_.start(ProfilePhase::Epoch);
+        profiler_.start(
+            ProfilePhase::Epoch
+        );
 
         float epochLossSum = 0.0f;
 
@@ -95,12 +162,18 @@ void Trainer::train(
             );
 
             /*
-                This remains a copy because moving the tensors between
-                devices mutates their device state. We can revisit this
-                during the optimization pass.
+                This remains a copy because moving tensors between
+                devices mutates their device state.
+
+                It should be revisited during the allocation/copy
+                optimization pass.
             */
             TrainingBatch batch =
                 trainBatches[batchIndex];
+
+            // ====================================================
+            // Batch transfer
+            // ====================================================
 
             profiler_.start(
                 ProfilePhase::BatchTransfer
@@ -115,11 +188,17 @@ void Trainer::train(
                 batch.targets.toCPU();
             }
 
-            synchronizeProfilePhase(activeDevice);
+            synchronizeProfilePhase(
+                activeDevice
+            );
 
             profiler_.stop(
                 ProfilePhase::BatchTransfer
             );
+
+            // ====================================================
+            // Model forward
+            // ====================================================
 
             profiler_.start(
                 ProfilePhase::ModelForward
@@ -128,11 +207,17 @@ void Trainer::train(
             Tensor predictions =
                 model.forward(batch.inputs);
 
-            synchronizeProfilePhase(activeDevice);
+            synchronizeProfilePhase(
+                activeDevice
+            );
 
             profiler_.stop(
                 ProfilePhase::ModelForward
             );
+
+            // ====================================================
+            // Prepare flattened loss inputs
+            // ====================================================
 
             Tensor flatPredictions;
             Tensor flatTargets;
@@ -144,15 +229,17 @@ void Trainer::train(
                     );
 
                 flatTargets =
-                    Tensor({ batch.targets.size() });
+                    Tensor({
+                        batch.targets.size()
+                        });
 
                 for (
-                    std::size_t i = 0;
-                    i < batch.targets.size();
-                    ++i
+                    std::size_t index = 0;
+                    index < batch.targets.size();
+                    ++index
                     ) {
-                    flatTargets[i] =
-                        batch.targets[i];
+                    flatTargets[index] =
+                        batch.targets[index];
                 }
             }
             else if (predictions.rank() == 2) {
@@ -169,16 +256,16 @@ void Trainer::train(
                 );
             }
 
-            /*
-                flatTargets is newly constructed on the CPU in the
-                rank-3 path, so it must be moved before CUDA loss.
-            */
             if (activeDevice == Device::CUDA) {
                 flatTargets.toCUDA();
             }
             else {
                 flatTargets.toCPU();
             }
+
+            // ====================================================
+            // Loss forward
+            // ====================================================
 
             profiler_.start(
                 ProfilePhase::LossForward
@@ -190,11 +277,17 @@ void Trainer::train(
                     flatTargets
                 );
 
-            synchronizeProfilePhase(activeDevice);
+            synchronizeProfilePhase(
+                activeDevice
+            );
 
             profiler_.stop(
                 ProfilePhase::LossForward
             );
+
+            // ====================================================
+            // Loss backward
+            // ====================================================
 
             profiler_.start(
                 ProfilePhase::LossBackward
@@ -203,7 +296,9 @@ void Trainer::train(
             Tensor flatGradLoss =
                 lossFunction.backward();
 
-            synchronizeProfilePhase(activeDevice);
+            synchronizeProfilePhase(
+                activeDevice
+            );
 
             profiler_.stop(
                 ProfilePhase::LossBackward
@@ -224,43 +319,73 @@ void Trainer::train(
                     flatGradLoss;
             }
 
+            // ====================================================
+            // Model backward
+            // ====================================================
+
             profiler_.start(
                 ProfilePhase::ModelBackward
             );
 
-            model.backward(gradLoss);
+            model.backward(
+                gradLoss
+            );
 
-            synchronizeProfilePhase(activeDevice);
+            synchronizeProfilePhase(
+                activeDevice
+            );
 
             profiler_.stop(
                 ProfilePhase::ModelBackward
             );
+
+            // ====================================================
+            // Optimizer
+            // ====================================================
 
             profiler_.start(
                 ProfilePhase::OptimizerStep
             );
 
-            optimizer.step(params);
+            optimizer.step(
+                params
+            );
 
-            synchronizeProfilePhase(activeDevice);
+            synchronizeProfilePhase(
+                activeDevice
+            );
 
             profiler_.stop(
                 ProfilePhase::OptimizerStep
             );
 
+            // ====================================================
+            // Zero gradients
+            // ====================================================
+
             profiler_.start(
                 ProfilePhase::ZeroGrad
             );
 
-            optimizer.zeroGrad(params);
+            optimizer.zeroGrad(
+                params
+            );
 
-            synchronizeProfilePhase(activeDevice);
+            synchronizeProfilePhase(
+                activeDevice
+            );
 
             profiler_.stop(
                 ProfilePhase::ZeroGrad
             );
 
-            history.addTrainLoss(lossValue);
+            // ====================================================
+            // Bookkeeping
+            // ====================================================
+
+            history.addTrainLoss(
+                lossValue
+            );
 
             epochLossSum += lossValue;
             ++globalStep;
@@ -271,8 +396,10 @@ void Trainer::train(
                 batch.inputs.size()
             );
 
-            synchronizeProfilePhase(activeDevice);
-
+            /*
+                No synchronization is needed here. Every CUDA-producing
+                child phase has already been synchronized.
+            */
             profiler_.stop(
                 ProfilePhase::TrainingStep
             );
@@ -299,6 +426,10 @@ void Trainer::train(
                 trainBatches.size()
                 );
 
+        // ========================================================
+        // Validation
+        // ========================================================
+
         float valLoss = 0.0f;
         bool hasValidationLoss = false;
 
@@ -311,9 +442,13 @@ void Trainer::train(
             );
 
             valLoss =
-                evaluate(*validationBatches);
+                evaluate(
+                    *validationBatches
+                );
 
-            synchronizeProfilePhase(activeDevice);
+            synchronizeProfilePhase(
+                activeDevice
+            );
 
             profiler_.stop(
                 ProfilePhase::Validation
@@ -326,10 +461,6 @@ void Trainer::train(
             hasValidationLoss = true;
         }
 
-        /*
-            Print after validation so debug or profiling output from
-            evaluate() cannot split the epoch summary line.
-        */
         std::cout
             << "[EPOCH] "
             << epoch
@@ -348,18 +479,28 @@ void Trainer::train(
 
         EpochContext context;
         context.epoch = epoch;
-        context.totalEpochs = config.epochs;
-        context.globalStep = globalStep;
-        context.trainLoss = avgEpochLoss;
-        context.validationLoss = valLoss;
+        context.totalEpochs =
+            config.epochs;
+        context.globalStep =
+            globalStep;
+        context.trainLoss =
+            avgEpochLoss;
+        context.validationLoss =
+            valLoss;
         context.hasValidationLoss =
             hasValidationLoss;
-        context.device = activeDevice;
-        context.runName = config.runName;
+        context.device =
+            activeDevice;
+        context.runName =
+            config.runName;
         context.checkpointDirectory =
             config.checkpointDirectory;
         context.checkpointEveryEpochs =
             config.checkpointEveryEpochs;
+
+        // ========================================================
+        // Callbacks
+        // ========================================================
 
         bool stopTraining = false;
 
@@ -379,19 +520,25 @@ void Trainer::train(
                 history
             );
 
-            if (callback->shouldStopTraining()) {
+            if (
+                callback->shouldStopTraining()
+                ) {
                 stopTraining = true;
             }
         }
 
-        synchronizeProfilePhase(activeDevice);
+        synchronizeProfilePhase(
+            activeDevice
+        );
 
         profiler_.stop(
             ProfilePhase::Callbacks
         );
 
-        synchronizeProfilePhase(activeDevice);
-
+        /*
+            The epoch contains only already-synchronized child phases,
+            so another synchronization is unnecessary.
+        */
         profiler_.stop(
             ProfilePhase::Epoch
         );
@@ -401,15 +548,12 @@ void Trainer::train(
         }
     }
 
-    synchronizeProfilePhase(activeDevice);
-
+    /*
+        All CUDA-producing phases have already synchronized individually.
+    */
     profiler_.stop(
         ProfilePhase::TotalTraining
     );
-
-    if (activeDevice == Device::CUDA) {
-        setCudaSynchronizationEnabled(false);
-    }
 
     if (
         config.enableProfiling &&

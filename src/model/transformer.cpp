@@ -51,80 +51,269 @@ Transformer::Transformer(
     ) {
 }
 
-Tensor Transformer::forward(const Tensor& tokenIds) {
+void Transformer::setProfiler(TrainingProfiler* profiler) {
+    profiler_ = profiler;
+
+    for (TransformerBlock& block : blocks_) {
+        block.setProfiler(profiler);
+    }
+}
+
+Tensor Transformer::forward(
+    const Tensor& tokenIds
+) {
     if (tokenIds.rank() != 2) {
-        throw std::invalid_argument("Transformer::forward expects tokenIds shape [batch, sequence].");
+        throw std::invalid_argument(
+            "Transformer::forward expects tokenIds shape "
+            "[batch, sequence]."
+        );
     }
 
-    size_t batchSize = tokenIds.shape()[0];
-    size_t sequenceLength = tokenIds.shape()[1];
+    const size_t batchSize =
+        tokenIds.shape()[0];
+
+    const size_t sequenceLength =
+        tokenIds.shape()[1];
 
     if (sequenceLength > maxSequenceLength_) {
-        throw std::invalid_argument("Input sequence length exceeds maxSequenceLength.");
+        throw std::invalid_argument(
+            "Input sequence length exceeds maxSequenceLength."
+        );
     }
 
-    Tensor tokenEmbedded = tokenEmbedding_.forward(tokenIds);
+    Tensor tokenEmbedded;
+    Tensor positionIds;
+    Tensor positionEmbedded;
+    Tensor x;
+    Tensor flat;
+    Tensor logitsFlat;
 
-    Tensor positionIds({ batchSize, sequenceLength }, 0.0f);
+    // ========================================================
+    // Token and positional embeddings
+    // ========================================================
 
-    for (size_t b = 0; b < batchSize; ++b) {
-        for (size_t t = 0; t < sequenceLength; ++t) {
-            positionIds.at({ b, t }) = static_cast<float>(t);
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::TransformerEmbedding,
+            tokenIds.device()
+        );
+
+        tokenEmbedded =
+            tokenEmbedding_.forward(tokenIds);
+
+        positionIds = Tensor(
+            { batchSize, sequenceLength },
+            0.0f
+        );
+
+        for (
+            size_t batch = 0;
+            batch < batchSize;
+            ++batch
+            ) {
+            for (
+                size_t position = 0;
+                position < sequenceLength;
+                ++position
+                ) {
+                positionIds.at({
+                    batch,
+                    position
+                    }) = static_cast<float>(
+                        position
+                        );
+            }
+        }
+
+        if (tokenIds.device() == Device::CUDA) {
+            positionIds.toCUDA();
+        }
+
+        positionEmbedded =
+            positionEmbedding_.forward(
+                positionIds
+            );
+
+        x = MathUtils::add(
+            tokenEmbedded,
+            positionEmbedded
+        );
+    }
+
+    // ========================================================
+    // Transformer blocks
+    // ========================================================
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::TransformerBlocksForward,
+            tokenIds.device()
+        );
+
+        for (TransformerBlock& block : blocks_) {
+            x = block.forward(x);
         }
     }
 
-    Tensor positionEmbedded = positionEmbedding_.forward(positionIds);
+    // ========================================================
+    // Final normalization
+    // ========================================================
 
-    Tensor x = MathUtils::add(tokenEmbedded, positionEmbedded);
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::TransformerFinalNorm,
+            tokenIds.device()
+        );
 
-    for (TransformerBlock& block : blocks_) {
-        x = block.forward(x);
+        x = finalNorm_.forward(x);
     }
 
-    x = finalNorm_.forward(x);
+    // ========================================================
+    // Output projection
+    // ========================================================
 
-    Tensor flat = LayerUtils::flatten3DTo2D(x);
-    Tensor logitsFlat = outputHead_.forward(flat);
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::TransformerOutputProjection,
+            tokenIds.device()
+        );
 
-    return LayerUtils::unflatten2DTo3D(logitsFlat, batchSize, sequenceLength);
+        flat =
+            LayerUtils::flatten3DTo2D(x);
+
+        logitsFlat =
+            outputHead_.forward(flat);
+    }
+
+    return LayerUtils::unflatten2DTo3D(
+        logitsFlat,
+        batchSize,
+        sequenceLength
+    );
 }
 
-void Transformer::backward(const Tensor& gradOutput) {
+void Transformer::backward(
+    const Tensor& gradOutput
+) {
     if (gradOutput.rank() != 3) {
         throw std::invalid_argument(
-            "Transformer::backward expects gradOutput shape [batch, sequence, vocabSize]."
+            "Transformer::backward expects gradOutput shape "
+            "[batch, sequence, vocabSize]."
         );
     }
 
-    size_t batchSize = gradOutput.shape()[0];
-    size_t sequenceLength = gradOutput.shape()[1];
-    size_t gradVocabSize = gradOutput.shape()[2];
+    const size_t batchSize =
+        gradOutput.shape()[0];
+
+    const size_t sequenceLength =
+        gradOutput.shape()[1];
+
+    const size_t gradVocabSize =
+        gradOutput.shape()[2];
 
     if (gradVocabSize != vocabSize_) {
-        throw std::invalid_argument("Transformer::backward vocab size mismatch.");
+        throw std::invalid_argument(
+            "Transformer::backward vocab size mismatch."
+        );
     }
 
-    Tensor flatGradOutput =
-        LayerUtils::flatten3DTo2D(gradOutput);
+    Tensor flatGradOutput;
+    Tensor gradHiddenFlat;
+    Tensor gradHidden;
+    Tensor grad;
 
-    Tensor gradHiddenFlat =
-        outputHead_.backward(flatGradOutput);
+    // ========================================================
+    // Output projection backward
+    // ========================================================
 
-    Tensor gradHidden =
-        LayerUtils::unflatten2DTo3D(
-            gradHiddenFlat,
-            batchSize,
-            sequenceLength
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::TransformerOutputBackward,
+            gradOutput.device()
         );
 
-    Tensor grad = finalNorm_.backward(gradHidden);
+        flatGradOutput =
+            LayerUtils::flatten3DTo2D(
+                gradOutput
+            );
 
-    for (auto it = blocks_.rbegin(); it != blocks_.rend(); ++it) {
-        grad = it->backward(grad);
+        gradHiddenFlat =
+            outputHead_.backward(
+                flatGradOutput
+            );
+
+        gradHidden =
+            LayerUtils::unflatten2DTo3D(
+                gradHiddenFlat,
+                batchSize,
+                sequenceLength
+            );
     }
 
-    tokenEmbedding_.backward(grad);
-    positionEmbedding_.backward(grad);
+    // ========================================================
+    // Final normalization backward
+    // ========================================================
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::TransformerFinalNormBackward,
+            gradOutput.device()
+        );
+
+        grad =
+            finalNorm_.backward(
+                gradHidden
+            );
+    }
+
+    // ========================================================
+    // Transformer blocks backward
+    // ========================================================
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::TransformerBlocksBackward,
+            gradOutput.device()
+        );
+
+        for (
+            auto iterator = blocks_.rbegin();
+            iterator != blocks_.rend();
+            ++iterator
+            ) {
+            grad =
+                iterator->backward(
+                    grad
+                );
+        }
+    }
+
+    // ========================================================
+    // Embedding backward
+    // ========================================================
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::TransformerEmbeddingBackward,
+            gradOutput.device()
+        );
+
+        tokenEmbedding_.backward(
+            grad
+        );
+
+        positionEmbedding_.backward(
+            grad
+        );
+    }
 }
 
 std::string Transformer::generate(

@@ -3243,7 +3243,7 @@ void testTextDatasetCharacterTokenizer() {
     config.type = TokenizerType::Character;
 
     TextDataset dataset(
-        "./data/tiny_shakespeare.txt",
+        "./data/shakespeare.txt",
         32,
         config
     );
@@ -3271,7 +3271,7 @@ void testTextDatasetBPETokenizer() {
     config.trainIfMissing = true;
 
     TextDataset dataset(
-        "./data/tiny_shakespeare.txt",
+        "./data/shakespeare.txt",
         32,
         config
     );
@@ -3363,7 +3363,7 @@ int main(int argc, char** argv) {
                 i++; // Skip the next argument since it's the device flag
 			}
 		}
-        else if (std::string(argv[i]) == "--profile") {
+        else if (std::string(argv[i]) == "--profiler") {
             runProfilerTests = true;
             std::cout << "Running profiler tests enabled." << std::endl;
             if (std::string(argv[i + 1]) == "-C" || std::string(argv[i + 1]) == "-c") {
@@ -3457,6 +3457,7 @@ int main(int argc, char** argv) {
             std::cout << "  --checkpoint            Run checkpointing tests\n";
             std::cout << "  --generate-best         Load best checkpoint and run generation suite\n";
             std::cout << "  --tokenizer             Run tokenizer specific tests from update\n";
+            return 0;
         }
 		else {
 			std::cerr << "Unknown option: " << argv[i] << "\n";
@@ -3577,7 +3578,26 @@ int main(int argc, char** argv) {
             testCharTokenizerSaveLoad();
             testBPETokenizerSaveLoad();
             testTokenizerFactory();
-            testTextDatasetCharacterTokenizer();
+            try {
+                std::cout
+                    << "[TEST] Starting character dataset test..."
+                    << std::endl;
+
+                testTextDatasetCharacterTokenizer();
+
+                std::cout
+                    << "[PASS] Character dataset test returned."
+                    << std::endl;
+            }
+            catch (const std::exception& error) {
+                std::cerr
+                    << "[FAIL] Character dataset test threw:\n"
+                    << error.what()
+                    << std::endl;
+
+                return 1;
+            }
+
             testTextDatasetBPETokenizer();
         }
     
@@ -3600,7 +3620,24 @@ int main(int argc, char** argv) {
          << "===================================================\n\n"
          << std::flush;
         
-        runShakedownTests(deviceShakedown);
+        try {
+            runShakedownTests(deviceShakedown);
+        }
+        catch (const std::exception& error) {
+            std::cerr
+                << "\n[SHakedown ERROR]\n"
+                << error.what()
+                << "\n";
+
+            return 1;
+        }
+        catch (...) {
+            std::cerr
+                << "\n[SHAKEDOWN ERROR]\n"
+                << "Unknown non-standard exception.\n";
+
+            return 1;
+        }
     }
 
     if (runGenerationTests) {

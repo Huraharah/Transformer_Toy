@@ -4,7 +4,7 @@
 #include <cmath>
 
 namespace kernels {
-	__global__ void selfAttentionForwardKernel(
+    __global__ void selfAttentionForwardKernel(
         const float* q,
         const float* k,
         const float* v,
@@ -89,19 +89,19 @@ namespace kernels {
         }
     }
 
-	__global__ void selfAttentionBackwardKernel(
-		const float* q,
-		const float* k,
-		const float* v,
-		const float* attentionWeights,
-		const float* gradOutput,
-		float* gradQ,
-		float* gradK,
-		float* gradV,
-		size_t batchSize,
-		size_t sequenceLength,
-		size_t embedDim
-	) {
+    __global__ void selfAttentionBackwardKernel(
+        const float* q,
+        const float* k,
+        const float* v,
+        const float* attentionWeights,
+        const float* gradOutput,
+        float* gradQ,
+        float* gradK,
+        float* gradV,
+        size_t batchSize,
+        size_t sequenceLength,
+        size_t embedDim
+    ) {
         {
             size_t b = blockIdx.x;
             size_t t = blockIdx.y;
@@ -163,7 +163,7 @@ namespace kernels {
             }
         }
 
-	}
+    }
 
     __global__ void multiHeadAttentionForwardKernel(
         const float* q,
@@ -263,96 +263,132 @@ namespace kernels {
         }
     }
 
-	__global__ void multiHeadAttentionBackwardKernel(
-		const float* q,
-		const float* k,
-		const float* v,
-		const float* attentionWeights,
-		const float* gradOutput,
-		float* gradQ,
-		float* gradK,
-		float* gradV,
-		size_t batchSize,
-		size_t sequenceLength,
-		size_t numHeads,
-		size_t headDim
-	) {
+    __global__ void multiHeadAttentionBackwardKernel(
+        const float* q,
+        const float* k,
+        const float* v,
+        const float* attentionWeights,
+        const float* gradOutput,
+        float* gradQ,
+        float* gradK,
+        float* gradV,
+        size_t batchSize,
+        size_t sequenceLength,
+        size_t numHeads,
+        size_t headDim
+    ) {
         size_t b = blockIdx.x;
         size_t h = blockIdx.y;
         size_t t = blockIdx.z;
+        size_t threadId = threadIdx.x;
 
         if (b >= batchSize || h >= numHeads || t >= sequenceLength) {
             return;
         }
 
         size_t embedDim = numHeads * headDim;
+        size_t queryBase = (b * sequenceLength + t) * embedDim;
+        size_t attentionRowBase = ((b * numHeads + h) * sequenceLength + t) * sequenceLength;
+
         float scale = rsqrtf(static_cast<float>(headDim));
 
-        for (size_t j = 0; j <= t; ++j) {
+        /*
+            Shared-memory layout:
+
+            gradWeights[sequenceLength]
+            reduction[blockDim.x]
+        */
+        extern __shared__ float sharedMemory[];
+
+        float* gradWeights = sharedMemory;
+        float* reduction = sharedMemory + sequenceLength;
+
+        /*
+            Each thread computes one or more key positions j.
+
+            For the current sequence length of 64 and block size of 64,
+            each active thread computes exactly one j.
+        */
+        float localWeightedSum = 0.0f;
+
+        for (size_t j = threadId; j <= t; j += blockDim.x) {
+            size_t keyValueBase = (b * sequenceLength + j) * embedDim;
             float gradWeight = 0.0f;
 
             for (size_t f = 0; f < headDim; ++f) {
                 size_t globalF = h * headDim + f;
+                float gradOut = gradOutput[queryBase + globalF];
 
-                gradWeight +=
-                    gradOutput[(b * sequenceLength + t) * embedDim + globalF] *
-                    v[(b * sequenceLength + j) * embedDim + globalF];
+                gradWeight += gradOut * v[keyValueBase + globalF];
 
                 atomicAdd(
-                    &gradV[(b * sequenceLength + j) * embedDim + globalF],
-                    attentionWeights[
-                        ((b * numHeads + h) * sequenceLength + t) * sequenceLength + j
-                    ] *
-                    gradOutput[(b * sequenceLength + t) * embedDim + globalF]
-                            );
+                    &gradV[keyValueBase + globalF],
+                    attentionWeights[attentionRowBase + j] * gradOut
+                );
             }
 
-            float weightedSum = 0.0f;
+            gradWeights[j] = gradWeight;
+            localWeightedSum += gradWeight * attentionWeights[attentionRowBase + j];
+        }
 
-            for (size_t m = 0; m <= t; ++m) {
-                float gw = 0.0f;
+        /*
+            Threads with no valid j still participate in the reduction.
+        */
+        reduction[threadId] = localWeightedSum;
 
-                for (size_t f = 0; f < headDim; ++f) {
-                    size_t globalF = h * headDim + f;
+        __syncthreads();
 
-                    gw +=
-                        gradOutput[(b * sequenceLength + t) * embedDim + globalF] *
-                        v[(b * sequenceLength + m) * embedDim + globalF];
-                }
+        /*
+            Block-wide reduction for weightedSum.
 
-                weightedSum +=
-                    gw *
-                    attentionWeights[
-                        ((b * numHeads + h) * sequenceLength + t) * sequenceLength + m
-                    ];
+            This assumes blockDim.x is a power of two, which the wrapper
+            below guarantees.
+        */
+        for (size_t stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+            if (threadId < stride) {
+                reduction[threadId] += reduction[threadId + stride];
             }
+
+            __syncthreads();
+        }
+
+        float weightedSum = reduction[0];
+
+        /*
+            Every thread now handles its own j value using the shared
+            weightedSum.
+        */
+        for (size_t j = threadId; j <= t; j += blockDim.x) {
+            size_t keyValueBase = (b * sequenceLength + j) * embedDim;
 
             float gradScore =
-                attentionWeights[
-                    ((b * numHeads + h) * sequenceLength + t) * sequenceLength + j
-                ] *
-                (gradWeight - weightedSum);
+                attentionWeights[attentionRowBase + j] *
+                (gradWeights[j] - weightedSum) *
+                scale;
 
-                    gradScore *= scale;
+            for (size_t f = 0; f < headDim; ++f) {
+                size_t globalF = h * headDim + f;
 
-                    for (size_t f = 0; f < headDim; ++f) {
-                        size_t globalF = h * headDim + f;
+                /*
+                    gradQ[b,t,f] receives contributions from every j in
+                    this block, so this first implementation uses atomics.
+                */
+                atomicAdd(
+                    &gradQ[queryBase + globalF],
+                    gradScore * k[keyValueBase + globalF]
+                );
 
-                        atomicAdd(
-                            &gradQ[(b * sequenceLength + t) * embedDim + globalF],
-                            gradScore *
-                            k[(b * sequenceLength + j) * embedDim + globalF]
-                        );
-
-                        atomicAdd(
-                            &gradK[(b * sequenceLength + j) * embedDim + globalF],
-                            gradScore *
-                            q[(b * sequenceLength + t) * embedDim + globalF]
-                        );
-                    }
+                /*
+                    gradK[b,j,f] receives contributions from multiple t
+                    blocks, so an atomic remains necessary.
+                */
+                atomicAdd(
+                    &gradK[keyValueBase + globalF],
+                    gradScore * q[queryBase + globalF]
+                );
+            }
         }
     }
-
 }
 
 void launchSelfAttentionForward(
@@ -478,26 +514,29 @@ void launchMultiHeadAttentionForward(
 }
 
 void launchMultiHeadAttentionBackward(
-	const float* q,
-	const float* k,
-	const float* v,
-	const float* attentionWeights,
-	const float* gradOutput,
-	float* gradQ,
-	float* gradK,
-	float* gradV,
-	size_t batchSize,
-	size_t sequenceLength,
-	size_t numHeads,
-	size_t headDim
+    const float* q,
+    const float* k,
+    const float* v,
+    const float* attentionWeights,
+    const float* gradOutput,
+    float* gradQ,
+    float* gradK,
+    float* gradV,
+    size_t batchSize,
+    size_t sequenceLength,
+    size_t numHeads,
+    size_t headDim
 ) {
-    if (
-        batchSize == 0 ||
-        sequenceLength == 0 ||
-        numHeads == 0 ||
-        headDim == 0
-        ) {
-        return;
+    constexpr unsigned int maximumThreads = 256;
+
+    unsigned int threads = 1;
+
+    while (threads < sequenceLength && threads < maximumThreads) {
+        threads <<= 1;
+    }
+
+    if (threads > maximumThreads) {
+        threads = maximumThreads;
     }
 
     dim3 grid(
@@ -506,23 +545,34 @@ void launchMultiHeadAttentionBackward(
         static_cast<unsigned int>(sequenceLength)
     );
 
-    dim3 block(1);
+    dim3 block(threads);
 
-    kernels::multiHeadAttentionBackwardKernel<<<grid, block>>>(
-        q,
-        k,
-        v,
-        attentionWeights,
-        gradOutput,
-        gradQ,
-        gradK,
-        gradV,
-        batchSize,
-        sequenceLength,
-        numHeads,
-        headDim
-        );
+    size_t sharedMemoryBytes =
+        (
+            sequenceLength +
+            threads
+            ) *
+        sizeof(float);
+
+    kernels::multiHeadAttentionBackwardKernel<<<grid, block, sharedMemoryBytes>>>(
+            q,
+            k,
+            v,
+            attentionWeights,
+            gradOutput,
+            gradQ,
+            gradK,
+            gradV,
+            batchSize,
+            sequenceLength,
+            numHeads,
+            headDim
+            );
 
     CUDA_CHECK(cudaGetLastError());
-    
+
+    /*
+        No cudaSync() here. Profiling and higher-level control own
+        synchronization.
+    */
 }

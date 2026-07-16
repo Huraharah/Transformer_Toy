@@ -2,8 +2,10 @@
 #include "core/math_utils.h"
 #include "core/parameter.h"
 #include "kernels/activation_kernels.cuh"
+#include "training/training_profiler.h"
 
 #include <stdexcept>
+#include <utility>
 
 FFN::FFN(size_t embedDim, size_t hiddenDim, Random& rng)
     : embedDim_(embedDim),
@@ -12,111 +14,290 @@ FFN::FFN(size_t embedDim, size_t hiddenDim, Random& rng)
     linear2_(hiddenDim, embedDim, rng) {
 }
 
-Tensor FFN::forward(const Tensor& input){
+void FFN::setProfiler(TrainingProfiler* profiler) {
+	profiler_ = profiler;
+}
+
+Tensor FFN::forward(
+    const Tensor& input
+) {
     if (input.rank() != 3) {
-        throw std::invalid_argument("FFN::forward expects input shape [batch, sequence, embedDim].");
+        throw std::invalid_argument(
+            "FFN::forward expects input shape "
+            "[batch, sequence, embedDim]."
+        );
     }
 
-    size_t batchSize = input.shape()[0];
-    size_t sequenceLength = input.shape()[1];
-    size_t inputEmbedDim = input.shape()[2];
+    const size_t batchSize =
+        input.shape()[0];
+
+    const size_t sequenceLength =
+        input.shape()[1];
+
+    const size_t inputEmbedDim =
+        input.shape()[2];
 
     if (inputEmbedDim != embedDim_) {
-        throw std::invalid_argument("FFN embed dimension mismatch.");
+        throw std::invalid_argument(
+            "FFN embed dimension mismatch."
+        );
     }
 
-	cachedInputShape_ = { batchSize, sequenceLength, embedDim_ }; // Cache the input shape for backward pass
+    cachedInputShape_ = {
+        batchSize,
+        sequenceLength,
+        embedDim_
+    };
 
-    Tensor flatInput({ batchSize * sequenceLength, embedDim_ }, 0.0f);
+    Tensor flatInput;
+    Tensor hidden;
+    Tensor outputFlat;
+    Tensor output;
 
-    for (size_t b = 0; b < batchSize; ++b) {
-        for (size_t t = 0; t < sequenceLength; ++t) {
-            for (size_t f = 0; f < embedDim_; ++f) {
-                flatInput.at({ b * sequenceLength + t, f }) = input.at({ b, t, f });
+    // ========================================================
+    // Flatten input
+    // ========================================================
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::FFNFlattenForward,
+            input.device()
+        );
+
+        flatInput = input;
+        flatInput.reshape({ batchSize * sequenceLength, embedDim_ });
+    }
+
+    // ========================================================
+    // First linear projection
+    // ========================================================
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::FFNLinear1Forward,
+            input.device()
+        );
+
+        hidden = linear1_.forward(flatInput);
+    }
+
+    /*
+        Preserve the pre-activation tensor for GELU backward.
+    */
+    cachedHiddenPreActivation_ = hidden;
+
+    // ========================================================
+    // GELU activation
+    // ========================================================
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::FFNGeluForward,
+            hidden.device()
+        );
+
+        if (hidden.device() == Device::CUDA) {
+            launchGeluForward(
+                hidden.deviceData(),
+                hidden.size()
+            );
+        }
+        else {
+            for ( size_t index = 0; index < hidden.size(); ++index ) {
+                hidden[index] = MathUtils::gelu( hidden[index] );
             }
         }
     }
 
-    Tensor hidden = linear1_.forward(flatInput);
+    // ========================================================
+    // Second linear projection
+    // ========================================================
 
-	cachedHiddenPreActivation_ = hidden; // Cache for backward pass
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::FFNLinear2Forward,
+            hidden.device()
+        );
 
-	if (hidden.device() == Device::CUDA) {
-        launchGeluForward(hidden.deviceData(), hidden.size());
-    } else {
-		for (size_t i = 0; i < hidden.size(); ++i) {
-			hidden[i] = MathUtils::gelu(hidden[i]);
-		}
+        outputFlat =
+            linear2_.forward(
+                hidden
+            );
     }
 
-    Tensor outputFlat = linear2_.forward(hidden);
+    // ========================================================
+    // Restore [batch, sequence, embedDim]
+    // ========================================================
 
-    Tensor output({ batchSize, sequenceLength, embedDim_ }, 0.0f);
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::FFNUnflattenForward,
+            outputFlat.device()
+        );
 
-    for (size_t b = 0; b < batchSize; ++b) {
-        for (size_t t = 0; t < sequenceLength; ++t) {
-            for (size_t f = 0; f < embedDim_; ++f) {
-                output.at({ b, t, f }) = outputFlat.at({ b * sequenceLength + t, f });
-            }
-        }
+        outputFlat.reshape({ batchSize, sequenceLength, embedDim_ });
+        output = std::move(outputFlat);
     }
 
     return output;
 }
 
-Tensor FFN::backward(const Tensor& gradOutput) {
-	if (gradOutput.rank() != 3) {
-		throw std::invalid_argument("FFN::backward expects gradOutput shape [batch, sequence, embedDim].");
-	}
-	size_t batchSize = gradOutput.shape()[0];
-	size_t sequenceLength = gradOutput.shape()[1];
-	size_t outputEmbedDim = gradOutput.shape()[2];
-	if (outputEmbedDim != embedDim_) {
-		throw std::invalid_argument("FFN backward embed dimension mismatch.");
-	}
-	if (cachedInputShape_.empty()) {
-		throw std::runtime_error("FFN::backward called before forward.");
-	}
-	if (cachedInputShape_[0] != batchSize || cachedInputShape_[1] != sequenceLength) {
-		throw std::invalid_argument("FFN backward batch or sequence size mismatch.");
-	}
+Tensor FFN::backward(
+    const Tensor& gradOutput
+) {
+    if (gradOutput.rank() != 3) {
+        throw std::invalid_argument(
+            "FFN::backward expects gradOutput shape "
+            "[batch, sequence, embedDim]."
+        );
+    }
 
-	Tensor flatGradOutput({ batchSize * sequenceLength, embedDim_ }, 0.0f);
-	for (size_t b = 0; b < batchSize; ++b) {
-		for (size_t t = 0; t < sequenceLength; ++t) {
-			for (size_t f = 0; f < embedDim_; ++f) {
-				flatGradOutput.at({ b * sequenceLength + t, f }) = gradOutput.at({ b, t, f });
-			}
-		}
-	}
+    const size_t batchSize =
+        gradOutput.shape()[0];
 
-	Tensor gradHidden = linear2_.backward(flatGradOutput);
+    const size_t sequenceLength =
+        gradOutput.shape()[1];
 
-	if (gradHidden.device() == Device::CUDA) {
-		launchGeluBackward(cachedHiddenPreActivation_.deviceData(), gradHidden.deviceData(), gradHidden.size());
-	}
-	else {
-		for (size_t i = 0; i < gradHidden.size(); ++i) {
-			float x = cachedHiddenPreActivation_[i];
-			float geluGrad = MathUtils::geluDerivative(x);
-			gradHidden[i] *= geluGrad;
-		}
-	}
+    const size_t outputEmbedDim =
+        gradOutput.shape()[2];
 
-	if (cachedHiddenPreActivation_.size() != gradHidden.size()) {
-		throw std::runtime_error("FFN backward cached activation size mismatch.");
-	}
+    if (outputEmbedDim != embedDim_) {
+        throw std::invalid_argument(
+            "FFN backward embed dimension mismatch."
+        );
+    }
 
-	Tensor gradInputFlat = linear1_.backward(gradHidden);
-	Tensor gradInput({ batchSize, sequenceLength, embedDim_ }, 0.0f);
-	for (size_t b = 0; b < batchSize; ++b) {
-		for (size_t t = 0; t < sequenceLength; ++t) {
-			for (size_t f = 0; f < embedDim_; ++f) {
-				gradInput.at({ b, t, f }) = gradInputFlat.at({ b * sequenceLength + t, f });
-			}
-		}
-	}
-	return gradInput;
+    if (cachedInputShape_.empty()) {
+        throw std::runtime_error(
+            "FFN::backward called before forward."
+        );
+    }
+
+    if (
+        cachedInputShape_[0] != batchSize ||
+        cachedInputShape_[1] != sequenceLength
+        ) {
+        throw std::invalid_argument(
+            "FFN backward batch or sequence size mismatch."
+        );
+    }
+
+    if (
+        cachedHiddenPreActivation_.empty()
+        ) {
+        throw std::runtime_error(
+            "FFN backward missing cached pre-activation."
+        );
+    }
+
+    Tensor flatGradOutput;
+    Tensor gradHidden;
+    Tensor gradInputFlat;
+    Tensor gradInput;
+
+    // ========================================================
+    // Flatten output gradient
+    // ========================================================
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::FFNFlattenBackward,
+            gradOutput.device()
+        );
+
+        flatGradOutput = gradOutput;
+        flatGradOutput.reshape({ batchSize * sequenceLength, embedDim_ });
+    }
+
+    // ========================================================
+    // Second linear layer backward
+    // ========================================================
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::FFNLinear2Backward,
+            flatGradOutput.device()
+        );
+
+        gradHidden = linear2_.backward( flatGradOutput);
+    }
+
+    if (
+        cachedHiddenPreActivation_.size() !=
+        gradHidden.size()
+        ) {
+        throw std::runtime_error(
+            "FFN backward cached activation size mismatch."
+        );
+    }
+
+    // ========================================================
+    // GELU backward
+    // ========================================================
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::FFNGeluBackward,
+            gradHidden.device()
+        );
+
+        if (gradHidden.device() == Device::CUDA) {
+            launchGeluBackward(
+                cachedHiddenPreActivation_
+                .deviceData(),
+                gradHidden.deviceData(),
+                gradHidden.size()
+            );
+        }
+        else {
+            for ( size_t index = 0; index < gradHidden.size(); ++index ) {
+                const float activation = cachedHiddenPreActivation_[index];
+
+                const float geluGradient = MathUtils::geluDerivative(activation);
+
+                gradHidden[index] *= geluGradient;
+            }
+        }
+    }
+
+    // ========================================================
+    // First linear layer backward
+    // ========================================================
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::FFNLinear1Backward,
+            gradHidden.device()
+        );
+
+        gradInputFlat = linear1_.backward(gradHidden);
+    }
+
+    // ========================================================
+    // Restore input-gradient shape
+    // ========================================================
+
+    {
+        ScopedProfile profile(
+            profiler_,
+            ProfilePhase::FFNUnflattenBackward,
+            gradInputFlat.device()
+        );
+
+        gradInputFlat.reshape({ batchSize, sequenceLength, embedDim_ });
+        gradInput = std::move(gradInputFlat);
+    }
+
+    return gradInput;
 }
 
 std::vector<Parameter*> FFN::parameters() {

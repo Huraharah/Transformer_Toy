@@ -4,6 +4,8 @@
 #include "core/random.h"
 #include "layers/linear.h"
 
+class TrainingProfiler;
+
 class FFN {
 private:
     size_t embedDim_;
@@ -13,6 +15,9 @@ private:
     Linear linear2_; // hiddenDim -> embedDim
 
     Tensor cachedHiddenPreActivation_;
+
+    TrainingProfiler* profiler_ = nullptr;
+
     std::vector<size_t> cachedInputShape_;
 
 public:
@@ -21,6 +26,8 @@ public:
     Tensor forward(const Tensor& input);
 
     Tensor backward(const Tensor& gradOutput);
+
+    void setProfiler(TrainingProfiler* profiler);
 
     std::vector<Parameter*> parameters();
 };

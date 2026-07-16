@@ -23,6 +23,8 @@ private:
 	Tensor cachedInput_;
     Tensor cachedAttentionResidual_;
 
+    TrainingProfiler* profiler_ = nullptr;
+
     std::unique_ptr<SelfAttention> singleAttention_;
     std::unique_ptr<MultiHeadAttention> multiAttention_;
 
@@ -31,6 +33,8 @@ public:
 
     Tensor forward(const Tensor& input);
 	Tensor backward(const Tensor& gradOutput);
+
+    void setProfiler(TrainingProfiler* profiler);
 
     std::vector<Parameter*> parameters();
 };
