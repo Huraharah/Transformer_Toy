@@ -15,9 +15,6 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="include\core\layer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="include\core\random.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -98,7 +95,6 @@
     <ClInclude Include="include\kernels\kernel_config.cuh" />
     <ClInclude Include="include\kernels\activation_kernels.cuh" />
     <ClInclude Include="include\kernels\linear_kernels.cuh" />
-    <ClInclude Include="include\kernels\reduction_kernels.cuh" />
     <ClInclude Include="include\kernels\tensor_ops_kernels.cuh" />
     <ClInclude Include="include\tests\smoke_test.h">
       <Filter>Header Files</Filter>
@@ -141,9 +137,6 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\core\layer.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="src\core\random.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -175,9 +168,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\model\transformer.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="test_main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\core\math_utils.cpp">
@@ -229,6 +219,9 @@
     <ClCompile Include="src\tests\profile_testing.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\tests\test_main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="src\kernels\tensor_ops_kernels.cu">
@@ -237,7 +230,6 @@
     <CudaCompile Include="src\kernels\optimizer_kernels.cu" />
     <CudaCompile Include="src\kernels\loss_kernels.cu" />
     <CudaCompile Include="src\kernels\linear_kernels.cu" />
-    <CudaCompile Include="src\kernels\reduction_kernels.cu" />
     <CudaCompile Include="src\kernels\activation_kernels.cu" />
     <CudaCompile Include="src\kernels\embeding_kernels.cu" />
     <CudaCompile Include="src\kernels\layer_norm_kernels.cu" />

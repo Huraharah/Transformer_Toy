@@ -571,11 +571,11 @@ void configTest() {
         std::cout << "AttentionConfig test:\n";
         std::cout << "d_model: " << cfg.embedDim << "\n";
         std::cout << "num_heads: " << cfg.numHeads << "\n";
-        std::cout << "d_head: " << cfg.headDim << "\n";
+        std::cout << "d_head: " << cfg.headDim() << "\n";
         std::cout << "causal: " << cfg.causal << "\n";
         assert(cfg.embedDim == 512);
         assert(cfg.numHeads == 8);
-        assert(cfg.headDim == 64);
+        assert(cfg.headDim() == 64);
         assert(cfg.causal == true);
     }
     catch (const std::exception& e) {

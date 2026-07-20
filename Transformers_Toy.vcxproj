@@ -27,7 +27,6 @@
     <ClInclude Include="include\kernels\loss_kernels.cuh" />
     <ClInclude Include="include\kernels\optimizer_kernels.cuh" />
     <ClInclude Include="include\core\cuda_utils.h" />
-    <ClInclude Include="include\core\layer.h" />
     <ClInclude Include="include\core\layer_utils.h" />
     <ClInclude Include="include\core\math_utils.h" />
     <ClInclude Include="include\core\parameter.h" />
@@ -36,7 +35,6 @@
     <ClInclude Include="include\data\dataset.h" />
     <ClInclude Include="include\data\tokenizer.h" />
     <ClInclude Include="include\kernels\kernel_config.cuh" />
-    <ClInclude Include="include\kernels\reduction_kernels.cuh" />
     <ClInclude Include="include\kernels\tensor_ops_kernels.cuh" />
     <ClInclude Include="include\layers\attention.h" />
     <ClInclude Include="include\layers\config.h" />
@@ -70,6 +68,7 @@
     <ClInclude Include="include\tests\best_model_generation_tests.h" />
     <ClCompile Include="src\tests\profile_testing.cpp" />
     <ClCompile Include="src\tests\run_best_model_generation_tests.cpp" />
+    <ClCompile Include="src\tests\test_main.cpp" />
     <ClCompile Include="src\training\checkpoint_callback.cpp" />
     <ClInclude Include="include\tests\profile_testing.h" />
   </ItemGroup>
@@ -77,7 +76,6 @@
     <ClCompile Include="src\tests\shakedown_test.cpp" />
     <ClCompile Include="src\training\best_checkpoint_callback.cpp" />
     <ClCompile Include="src\core\cuda_utils.cpp" />
-    <ClCompile Include="src\core\layer.cpp" />
     <ClCompile Include="src\core\layer_utils.cpp" />
     <ClCompile Include="src\core\math_utils.cpp" />
     <ClCompile Include="src\core\random.cpp" />
@@ -110,12 +108,8 @@
     <ClCompile Include="src\training\learning_rate_scheduler_callback.cpp" />
     <ClCompile Include="src\training\training_profiler.cpp" />
     <ClCompile Include="src\training\training_session.cpp" />
-    <ClCompile Include="test_main.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ExcludedFromBuild>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <CudaCompile Include="src\kernels\reduction_kernels.cu" />
     <ClCompile Include="src\training\adam_optimizer.cpp">
       <FileType>Document</FileType>
     </ClCompile>

@@ -12,7 +12,10 @@ enum class AttentionType {
 struct AttentionConfig {
     size_t embedDim = 0;
     size_t numHeads = 0;
-    size_t headDim = 0;
+    size_t headDim() const {
+        validate();
+        return embedDim / numHeads;
+    }
 
     bool causal = false;
     bool use_bias = true;
@@ -37,7 +40,7 @@ struct AttentionConfig {
         attention_dropout(attention_dropout_),
         projection_dropout(projection_dropout_) {
         validate();
-        headDim = embedDim / numHeads;
+        headDim();
     }
 
     void validate() const {
