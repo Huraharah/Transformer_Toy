@@ -66,6 +66,7 @@
     <ClInclude Include="include\training\training_config.h" />
     <ClInclude Include="include\training\training_history.h" />
     <ClInclude Include="include\tests\best_model_generation_tests.h" />
+    <ClCompile Include="python\bindings.cpp" />
     <ClCompile Include="src\tests\profile_testing.cpp" />
     <ClCompile Include="src\tests\run_best_model_generation_tests.cpp" />
     <ClCompile Include="src\tests\test_main.cpp" />

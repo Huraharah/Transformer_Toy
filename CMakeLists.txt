@@ -188,3 +188,58 @@ if(BUILD_TESTING)
         COMMAND transformer_toy_tests
     )
 endif()
+
+# ============================================================
+# Python extension module
+# ============================================================
+
+find_package(
+    Python
+    COMPONENTS
+        Interpreter
+        Development.Module
+    REQUIRED
+)
+
+find_package(
+    pybind11
+    CONFIG
+    REQUIRED
+)
+
+pybind11_add_module(
+    _transformer_toy
+    MODULE
+    "${CMAKE_CURRENT_SOURCE_DIR}/python/bindings.cpp"
+)
+
+target_link_libraries(
+    _transformer_toy
+    PRIVATE
+        transformer_toy_core
+)
+
+target_include_directories(
+    _transformer_toy
+    PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+)
+
+set(
+    TRANSFORMER_TOY_PYTHON_PACKAGE_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/python/transformer_toy"
+)
+
+add_custom_command(
+    TARGET _transformer_toy
+    POST_BUILD
+    COMMAND
+        ${CMAKE_COMMAND} -E make_directory
+        "${TRANSFORMER_TOY_PYTHON_PACKAGE_DIR}"
+    COMMAND
+        ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:_transformer_toy>"
+        "${TRANSFORMER_TOY_PYTHON_PACKAGE_DIR}/$<TARGET_FILE_NAME:_transformer_toy>"
+    COMMENT
+        "Copying Python extension into transformer_toy package"
+)

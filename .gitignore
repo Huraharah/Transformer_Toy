@@ -389,3 +389,13 @@ Release/
 *.obj
 *.pdb
 *.ilk
+
+# Python environment and caches
+.venv/
+__pycache__/
+*.pyc
+
+CMakeUserPresets.json
+python/transformer_toy/*.pyd
+python/transformer_toy/*.so
+python/transformer_toy/*.dylib
