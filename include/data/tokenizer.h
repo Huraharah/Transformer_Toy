@@ -46,6 +46,27 @@ struct TokenizerConfig {
     // Word tokenizer behavior.
     bool preserveWhitespace = true;
     bool preservePunctuation = true;
+
+
+    TokenizerConfig() = default;
+
+    TokenizerConfig(
+        TokenizerType tokenizerType,
+        std::size_t vocabularySize = 512,
+        std::size_t minimumFrequency = 2,
+        std::string tokenizerModelPath = "",
+        bool shouldTrainIfMissing = true,
+        bool shouldPreserveWhitespace = true,
+        bool shouldPreservePunctuation = true
+    )
+        : type(tokenizerType),
+        vocabSize(vocabularySize),
+        minFrequency(minimumFrequency),
+        modelPath(std::move(tokenizerModelPath)),
+        trainIfMissing(shouldTrainIfMissing),
+        preserveWhitespace(shouldPreserveWhitespace),
+        preservePunctuation(shouldPreservePunctuation) {
+    }
 };
 
 
@@ -161,6 +182,8 @@ private:
     ) const;
 
 public:
+    WordTokenizer() = default;
+
     explicit WordTokenizer(
         std::size_t targetVocabSize = 0,
         std::size_t minFrequency = 1,

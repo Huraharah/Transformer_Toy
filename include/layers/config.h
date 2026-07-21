@@ -10,8 +10,8 @@ enum class AttentionType {
 };
 
 struct AttentionConfig {
-    size_t embedDim = 0;
-    size_t numHeads = 0;
+    size_t embedDim = 1;
+    size_t numHeads = 1;
     size_t headDim() const {
         validate();
         return embedDim / numHeads;
@@ -70,8 +70,8 @@ struct AttentionConfig {
 };
 
 struct TransformerBlockConfig {
-    int d_model = 0;
-    int d_ff = 0;
+    int d_model = 1;
+    int d_ff = 1;
 
     bool pre_norm = true;
     bool use_bias = true;
@@ -141,9 +141,9 @@ struct TransformerBlockConfig {
 };
 
 struct TransformerModelConfig {
-    int vocab_size = 0;
-    int max_seq_len = 0;
-    int num_layers = 0;
+    int vocab_size = 1;
+    int max_seq_len = 1;
+    int num_layers = 1;
 
     TransformerBlockConfig block;
 
