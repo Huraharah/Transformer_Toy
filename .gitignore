@@ -399,3 +399,13 @@ CMakeUserPresets.json
 python/transformer_toy/*.pyd
 python/transformer_toy/*.so
 python/transformer_toy/*.dylib
+
+# Compile and testing artifacts
+smoke_checkpoints*/
+test_tokenizers
+training_history_test.csv
+
+# Visual Studio artifacts
+*.slnx
+*.vcxproj
+*.vcxproj.filters
