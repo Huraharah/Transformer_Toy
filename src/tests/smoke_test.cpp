@@ -63,12 +63,6 @@ namespace {
         config.batchSize = 16;
         config.logEverySteps = 0;
 
-        config.runName = device == Device::CUDA
-            ? "tiny_shakespeare_cuda_smoke"
-            : "tiny_shakespeare_cpu_smoke";
-
-        config.checkpointDirectory = "./smoke_checkpoints";
-
         // Periodic checkpoint
         config.enableCheckpointing = true;
         config.checkpointEveryEpochs = 5;
@@ -125,6 +119,13 @@ namespace {
         std::vector<TokenizerConfig> tokenizers = { tokenizerChar, tokenizerBPE, tokenizerWord};
 
         for (TokenizerConfig tokenizer : tokenizers) {
+
+            config.runName = device == Device::CUDA
+                ? "tiny_shakespeare_cuda_smoke"
+                : "tiny_shakespeare_cpu_smoke";
+
+            config.checkpointDirectory = "./smoke_checkpoints";
+
             TextDataset dataset("data/shakespeare.txt", contextLength, tokenizer);
 
             std::cout
