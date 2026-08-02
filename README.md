@@ -30,7 +30,13 @@ The native C++/CUDA training and generation pipeline is operational. Current dev
 
 ## Architecture
 
-// TODO: Add architecture diagram
+### Project Architecture
+
+![Project architecture](./diagrams/Project-Architecture.svg)
+
+### Model Architecture
+
+![Model architecture](./diagrams/Model-Architecture.svg)
 
 ## Repository Structure
 
