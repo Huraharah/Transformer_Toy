@@ -56,6 +56,7 @@ Transformer_Toy/
 │   ├── transformer_toy/        # Python package
 │   └── bindings.cpp            # pybind11 module definitions
 ├── data/                       # Example corpora and data files
+├── diagrams/                   # Architecture diagrams
 ├── CMakeLists.txt              # CMake build configuration
 ├── requirements.txt            # Python development dependencies
 ├── dev.ps1                     # Development environment helper
