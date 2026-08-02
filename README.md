@@ -2,11 +2,174 @@
 
 A C++ learning and experimentation framework for building, inspecting, and modifying Transformer-style architectures from first principles.
 
-## Project Goal
+## Project Overview
 
-The goal of this project is to build a small, readable Transformer implementation that can be used to explore architectural variants across multiple task domains, including text generation, code/debugging traces, graph-structured data, and possibly vision.
+**Transformer_Toy** is a from-scratch C++20 implementation of a decoder-only Transformer architecture designed for learning, experimentation, and research. The project intentionally avoids relying on deep-learning frameworks for the core implementation, instead building the major components—including tensors, attention, optimization, checkpointing, CUDA acceleration, and training infrastructure—from first principles.
 
-## Milestone 1 — Core Forward Logic
+Originally developed as a personal learning project during my graduate studies, Transformer_Toy has evolved into a modular experimentation platform for investigating architectural variants, performance optimizations, and future AI safety research.
+
+## Project Status
+
+The native C++/CUDA training and generation pipeline is operational. Current development focuses on exposing the existing implementation through a Python API using pybind11.
+
+## Current Features
+
+- From-scratch CPU tensor and neural-network implementation
+- CUDA-accelerated execution
+- Character, Word, and BPE tokenization
+- Single-head and multi-head causal attention
+- Configurable decoder-only Transformer architecture
+- Manual backward implementations
+- SGD and Adam optimizers
+- Checkpoint save/load support
+- Callback-based training infrastructure
+- Early stopping and learning-rate scheduling
+- CPU/CUDA parity testing
+- Text generation with temperature and top-k sampling
+- pybind11 Python API under active development
+
+## Architecture
+
+// TODO: Add architecture diagram
+
+## Repository Structure
+
+```text
+Transformer_Toy/
+├── src/                        # C++ and CUDA implementation
+│   ├── core/                   # Tensor and mathematical utilities
+│   ├── data/                   # Tokenizers and dataset loading
+│   ├── kernels/                # CUDA kernels and wrappers
+│   ├── layers/                 # Neural-network layers
+│   ├── models/                 # Transformer model implementation
+│   ├── tests/                  # Native tests and test harness
+│   └── training/               # Training, optimization, and callbacks
+├── include/                    # Public headers; mirrors src/
+├── python/
+│   ├── binding_tests/          # Python binding tests
+│   ├── transformer_toy/        # Python package
+│   └── bindings.cpp            # pybind11 module definitions
+├── data/                       # Example corpora and data files
+├── CMakeLists.txt              # CMake build configuration
+├── requirements.txt            # Python development dependencies
+├── dev.ps1                     # Development environment helper
+└── README.md
+```
+
+## Build Instructions
+
+These instructions describe the currently tested Windows build environment. Other platforms may require adjustments.
+
+**Tested environment**
+
+- Windows 11
+- Visual Studio with the MSVC C++ toolchain
+- CMake
+- CUDA Toolkit
+- Python 3.13
+
+### Prerequisites
+
+- C++20 compatible compiler (e.g., GCC 10+, Clang 10+, MSVC 2019+)
+- CUDA Toolkit (for GPU support)
+- CMake 3.20 or higher
+- Python 3.13 or higher
+- pybind11
+
+### Clone the repository
+
+```Powershell
+git clone https://github.com/Huraharah/Transformer_Toy.git
+cd Transformer_Toy
+```
+
+### Create Python virtual environment
+
+```Powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### Configure CMake
+
+```Powershell
+cmake -S . -B build `
+    -DPython_EXECUTABLE="$PWD/.venv/Scripts/python.exe" `
+    -Dpybind11_DIR="$PWD/.venv/Lib/site-packages/pybind11/share/cmake/pybind11"
+```
+
+### Build
+
+```Powershell
+cmake --build build --config Release
+```
+
+### Verify the native build
+
+```powershell
+.\build\bin\Release\transformer_toy_tests.exe --core
+```
+
+### Verify the Python bindings
+
+```Powershell
+$env:PYTHONPATH="$PWD/python;$PWD/build/lib/Release"
+
+python
+```
+
+```python
+import transformer_toy as tt
+
+print(tt.cuda_available())
+```
+
+### Reconfigure after CMake changes
+
+```Powershell
+Remove-Item -Recurse -Force build
+cmake -S . -B build `
+    -DPython_EXECUTABLE="$PWD/.venv/Scripts/python.exe" `
+    -Dpybind11_DIR="$PWD/.venv/Lib/site-packages/pybind11/share/cmake/pybind11"
+
+cmake --build build --config Release
+```
+
+## Native Test Harness Usage
+
+```
+.\build\bin\Release\transformer_toy_tests.exe [options]
+   Options:
+     --smoke               Run smoke tests
+	 --smoke -C/-c         Run smoke tests on CPU
+     --smoke -G/-g         Run smoke tests on GPU
+	 --shakedown           Run shakedown tests
+	 --shakedown -C/-c     Run shakedown tests on CPU
+	 --shakedown -G/-g     Run shakedown tests on GPU
+     --profiler            Run profiler benchmarking tests
+     --profiler -C/-c      Run profiler benchmarking tests on CPU
+     --profiler -G/-g      Run profiler benchmarking tests on GPU
+     --bypass              Bypass unit tests
+     --core                Run core tests
+     --accel               Run accelerator tests
+     --forward-parity      Run forward parity tests
+     --backward            Run backward tests
+     --backward-parity     Run backward parity tests
+     --optimizer-parity    Run optimizer parity tests
+	 --config              Run configuration tests
+     --checkpoint          Run checkpointing tests
+     --generate-best       Load best checkpoint and run generation suite
+     --tokenizer           Run tokenizer specific tests from update
+```
+
+## Project Roadmap
+
+This is an ongoing project, and the roadmap is subject to change. The current milestones are as follows:
+
+### Milestone 1 — Core Forward Logic
 
 Status: Complete
 
@@ -34,7 +197,7 @@ Implemented:
 - Top-k generation
 - Basic evaluation metrics
 
-## Milestone 2 — Multi-Head Attention and Architecture Controls
+### Milestone 2 — Multi-Head Attention and Architecture Controls
 
 Status: Complete
 
@@ -56,13 +219,13 @@ Implemented:
   - temperature
   - top-k
 
-## Milestone 3 — Training Infrastructure
+### Milestone 3 — Training Infrastructure
 
 Status: Complete
 
-Implemented::
+Implemented:
 - Manual backpropagation for selected layers
-- Lightweight autograd engine
+- Gradient propagation through the training pipeline
 - Optimizer support
   - SGD
   - Adam
@@ -71,7 +234,7 @@ Implemented::
 - Checkpoint save/load
 - Loss tracking over time
 
-### Milestone 3.5 — CUDA Acceleration refactor
+#### Milestone 3.5 — CUDA Acceleration Refactor
 
 Status: Complete
 
@@ -87,23 +250,22 @@ Completed:
 - Trainer device config
 - CPU vs GPU parity tests
 
-## Milestone 4 - Shakedown and final adjustments
+### Milestone 4 - Shakedown and Final Adjustments
 
 Status: Complete
 
 Completed:
-- Epoch Callback
-- Learning Rate Scheduler
-- Early Stopping
-- Patience
+- Epoch callback
+- Learning rate scheduler
+- Early stopping with configurable patience
 - CUDA optimizations
 
-## Milestone 4.5 - Tokenization updates, optimizations
+#### Milestone 4.5 - Tokenization Updates, Optimizations
 
 Status: Complete
 
 Completed:
-- Include other tokenization options (BPE, subword, word)
+- Added BPE and word tokenization
 - Perform optimization pass (both CUDA and CPU optimizations for using more of available resources)
 	- tokens/sec on CPU and CUDA
 	- average step time
@@ -113,7 +275,7 @@ Completed:
 	- validation loss per wall-clock hour
 - Full transformer build on full Shakespeare corpus
 
-## Milestone 5 - Python Bindings
+### Milestone 5 - Python Bindings
 
 Status: In Progress
 
@@ -143,7 +305,7 @@ Planned:
   - Release build installation
   - minimal inference and training examples
 
-## Milestone 6 — Architectural Experiments
+### Milestone 6 — Architectural Experiments
 
 Planned:
 - Deep FFN mixer
@@ -154,7 +316,7 @@ Planned:
 - Single-head vs multi-head comparisons
 - Mixed attention-depth experiments
 
-## Milestone 7 — Task Adapters
+### Milestone 7 — Task Adapters
 
 Planned:
 - Text generation task
@@ -163,7 +325,7 @@ Planned:
 - Graphormer-lite for graph tasks
 - Possible image recognition adapter
 
-## Milestone 8 — Research Evaluation
+### Milestone 8 — Research Evaluation
 
 Planned:
 - Compare architectures across task types
@@ -184,4 +346,10 @@ Planned:
 
 _________
 
-This project is a personal learning and experimentation tool, and is not intended for production use. It is designed to be simple and readable, rather than optimized for performance. Contributions and suggestions are welcome!
+## Project Scope
+
+Transformer_Toy is an educational and research-oriented implementation rather than a production machine-learning framework. It prioritizes inspectability, architectural experimentation, and explicit implementations of core mechanisms while still exploring CPU and CUDA performance optimization.
+
+Issues and technical feedback are welcome.
+
+The API and internal architecture remain under active development.
