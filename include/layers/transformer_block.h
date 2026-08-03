@@ -37,4 +37,20 @@ public:
     void setProfiler(TrainingProfiler* profiler);
 
     std::vector<Parameter*> parameters();
+
+    TransformerBlock(
+        const TransformerBlock&
+    ) = delete;
+
+    TransformerBlock& operator=(
+        const TransformerBlock&
+        ) = delete;
+
+    TransformerBlock(
+        TransformerBlock&&
+    ) noexcept = default;
+
+    TransformerBlock& operator=(
+        TransformerBlock&&
+        ) noexcept = default;
 };

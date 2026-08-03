@@ -312,6 +312,19 @@ Planned:
   - Release build installation
   - minimal inference and training examples
 
+#### Post–Milestone 5 architectural completion
+
+- Implement dropout operation
+- Apply attention dropout
+- Apply attention projection dropout
+- Apply block residual dropout
+- Apply FFN dropout
+- Apply model embedding dropout
+- Honor pre_norm versus post_norm
+- Honor use_bias throughout configured layers
+- Verify causal config behavior
+- Add training/evaluation mode switching
+
 ### Milestone 6 — Architectural Experiments
 
 Planned:

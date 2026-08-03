@@ -15,6 +15,16 @@
 #include "training/learning_rate_scheduler_callback.h"
 #include "data/tokenizer.h"
 #include "core/tensor.h"
+#include "core/random.h"
+#include "data/dataset.h"
+#include "core/parameter.h"
+#include "layers/linear.h"
+#include "layers/embedding.h"
+#include "layers/layer_norm.h"
+#include "layers/ffn.h"
+#include "layers/attention.h"
+#include "layers/transformer_block.h"
+#include "model/transformer.h"
 
 namespace py = pybind11;
 
@@ -992,6 +1002,969 @@ namespace {
             );
     }
 
+    void bindRandom(py::module_& module)
+    {
+        py::class_<Random>(
+            module,
+            "Random",
+            "Seedable random-number generator used by model initialization and batching."
+        )
+            .def(
+                py::init<uint32_t>(),
+                py::arg("seed")
+            )
+            .def(
+                "set_seed",
+                &Random::setSeed,
+                py::arg("seed")
+            )
+            .def(
+                "uniform",
+                &Random::uniform,
+                py::arg("min_value"),
+                py::arg("max_value")
+            )
+            .def(
+                "normal",
+                &Random::normal,
+                py::arg("mean"),
+                py::arg("stddev")
+            )
+            .def(
+                "randint",
+                &Random::randint,
+                py::arg("min_value"),
+                py::arg("max_value")
+            );
+    }
+
+    void bindTextDataset(py::module_& module)
+    {
+        py::class_<TextDataset>(
+            module,
+            "TextDataset",
+            "Tokenized text dataset providing autoregressive training windows."
+        )
+            .def(
+                py::init<
+                const std::string&,
+                std::size_t
+                >(),
+                py::arg("file_path"),
+                py::arg("context_length")
+            )
+
+            .def(
+                py::init<
+                const std::string&,
+                std::size_t,
+                const TokenizerConfig&
+                >(),
+                py::arg("file_path"),
+                py::arg("context_length"),
+                py::arg("tokenizer_config")
+            )
+
+            .def(
+                "get_input_window",
+                &TextDataset::getInputWindow,
+                py::arg("start_index")
+            )
+            .def(
+                "get_target_window",
+                &TextDataset::getTargetWindow,
+                py::arg("start_index")
+            )
+
+            .def(
+                "get_batch",
+                [](
+                    const TextDataset& dataset,
+                    std::size_t batchSize,
+                    Random& rng
+                    )
+                {
+                    Tensor inputs;
+                    Tensor targets;
+
+                    dataset.getBatch(
+                        batchSize,
+                        rng,
+                        inputs,
+                        targets
+                    );
+
+                    return py::make_tuple(
+                        std::move(inputs),
+                        std::move(targets)
+                    );
+                },
+                py::arg("batch_size"),
+                py::arg("rng")
+            )
+
+            .def_property_readonly(
+                "num_windows",
+                &TextDataset::numWindows
+            )
+            .def_property_readonly(
+                "context_length",
+                &TextDataset::contextLength
+            )
+            .def_property_readonly(
+                "vocab_size",
+                &TextDataset::vocabSize
+            )
+            .def_property_readonly(
+                "token_count",
+                &TextDataset::tokenCount
+            )
+
+            .def_property_readonly(
+                "tokenizer",
+                static_cast<Tokenizer & (TextDataset::*)()>(
+                    &TextDataset::tokenizer
+                    ),
+                py::return_value_policy::reference_internal
+            )
+
+            .def_property_readonly(
+                "token_ids",
+                [](const TextDataset& dataset)
+                {
+                    return dataset.tokenIds();
+                }
+            )
+            .def_property_readonly(
+                "raw_text",
+                [](const TextDataset& dataset)
+                {
+                    return dataset.rawText();
+                }
+            )
+
+            .def(
+                "__len__",
+                &TextDataset::numWindows
+            )
+
+            .def(
+                "__repr__",
+                [](const TextDataset& dataset)
+                {
+                    return
+                        "TextDataset("
+                        "token_count=" +
+                        std::to_string(dataset.tokenCount()) +
+                        ", context_length=" +
+                        std::to_string(dataset.contextLength()) +
+                        ", num_windows=" +
+                        std::to_string(dataset.numWindows()) +
+                        ", vocab_size=" +
+                        std::to_string(dataset.vocabSize()) +
+                        ")";
+                }
+            );
+    }
+
+    void bindParameter(py::module_& module)
+    {
+        py::class_<Parameter>(
+            module,
+            "Parameter",
+            "A trainable tensor value and its associated gradient."
+        )
+            .def(
+                py::init<>(),
+                "Create an empty parameter that requires gradients."
+            )
+
+            .def(
+                py::init<
+                const Tensor&,
+                const std::string&,
+                bool
+                >(),
+                py::arg("value"),
+                py::arg("name") = "",
+                py::arg("requires_grad") = true,
+                "Create a parameter from a tensor value."
+            )
+
+            .def_property(
+                "value",
+                [](Parameter& parameter) -> Tensor&
+                {
+                    return parameter.value;
+                },
+                [](Parameter& parameter, const Tensor& value)
+                {
+                    parameter.value = value;
+                },
+                py::return_value_policy::reference_internal,
+                "The parameter value tensor."
+            )
+
+            .def_property(
+                "grad",
+                [](Parameter& parameter) -> Tensor&
+                {
+                    return parameter.grad;
+                },
+                [](Parameter& parameter, const Tensor& grad)
+                {
+                    parameter.grad = grad;
+                },
+                py::return_value_policy::reference_internal,
+                "The gradient tensor associated with the parameter."
+            )
+
+            .def_readwrite(
+                "name",
+                &Parameter::name,
+                "The descriptive parameter name."
+            )
+
+            .def_readwrite(
+                "requires_grad",
+                &Parameter::requires_grad,
+                "Whether gradient computation and clearing are enabled."
+            )
+
+            .def(
+                "zero_grad",
+                &Parameter::zeroGrad,
+                "Fill the gradient tensor with zeros when requires_grad is true."
+            )
+
+            .def_property_readonly(
+                "has_grad",
+                &Parameter::hasGrad,
+                "Whether this parameter is configured to require gradients."
+            )
+
+            .def_property_readonly(
+                "size",
+                &Parameter::size,
+                "Number of elements in the parameter value."
+            )
+
+            .def(
+                "validate",
+                &Parameter::validate,
+                "Raise RuntimeError if value and gradient sizes do not match."
+            )
+
+            .def(
+                "__repr__",
+                [](const Parameter& parameter)
+                {
+                    return
+                        "Parameter("
+                        "name='" +
+                        parameter.name +
+                        "', shape=" +
+                        parameter.value.shapeString() +
+                        ", requires_grad=" +
+                        std::string(
+                            parameter.requires_grad
+                            ? "True"
+                            : "False"
+                        ) +
+                        ")";
+                }
+            );
+    }
+
+    void bindLinear(py::module_& module)
+    {
+        py::class_<Linear>(
+            module,
+            "Linear",
+            "Fully connected linear transformation."
+        )
+            .def(
+                py::init<
+                size_t,
+                size_t,
+                Random&
+                >(),
+                py::arg("in_features"),
+                py::arg("out_features"),
+                py::arg("rng"),
+                "Create a linear layer with randomly initialized weights."
+            )
+
+            .def(
+                "forward",
+                &Linear::forward,
+                py::arg("input"),
+                "Apply the linear transformation to a rank-2 tensor."
+            )
+
+            .def(
+                "backward",
+                &Linear::backward,
+                py::arg("grad_output"),
+                "Backpropagate through the layer and return the input gradient."
+            )
+
+            /*
+                Return copies for convenient inspection.
+
+                Live trainable state is available through parameters().
+            */
+            .def_property_readonly(
+                "weights",
+                [](const Linear& layer)
+                {
+                    return layer.weights();
+                },
+                "Copy of the current weight tensor."
+            )
+
+            .def_property_readonly(
+                "bias",
+                [](const Linear& layer)
+                {
+                    return layer.bias();
+                },
+                "Copy of the current bias tensor."
+            )
+
+            /*
+                Return live Parameter references owned by the layer.
+            */
+            .def(
+                "parameters",
+                [](Linear& layer)
+                {
+                    py::list result;
+
+                    py::object owner = py::cast(
+                        &layer,
+                        py::return_value_policy::reference
+                    );
+
+                    for (Parameter* parameter : layer.parameters()) {
+                        result.append(
+                            py::cast(
+                                parameter,
+                                py::return_value_policy::reference_internal,
+                                owner
+                            )
+                        );
+                    }
+
+                    return result;
+                },
+                "Return the layer's weight and bias Parameters."
+            )
+
+            .def(
+                "__repr__",
+                [](const Linear& layer)
+                {
+                    const std::vector<size_t>& shape =
+                        layer.weights().shape();
+
+                    return
+                        "Linear(in_features=" +
+                        std::to_string(shape[1]) +
+                        ", out_features=" +
+                        std::to_string(shape[0]) +
+                        ")";
+                }
+            );
+    }
+
+    void bindEmbedding(py::module_& module)
+    {
+        py::class_<Embedding>(
+            module,
+            "Embedding",
+            "Trainable token embedding lookup table."
+        )
+            .def(
+                py::init<
+                size_t,
+                size_t,
+                Random&
+                >(),
+                py::arg("vocab_size"),
+                py::arg("embedding_dim"),
+                py::arg("rng"),
+                "Create an embedding layer with randomly initialized values."
+            )
+
+            .def(
+                "forward",
+                &Embedding::forward,
+                py::arg("token_ids"),
+                "Look up embeddings for a rank-2 token-ID tensor."
+            )
+
+            .def(
+                "backward",
+                &Embedding::backward,
+                py::arg("grad_output"),
+                "Accumulate embedding-table gradients and return a zero token gradient."
+            )
+
+            .def_property_readonly(
+                "table",
+                [](const Embedding& embedding)
+                {
+                    return embedding.table();
+                },
+                "Copy of the current embedding table."
+            )
+
+            .def(
+                "parameters",
+                [](Embedding& embedding)
+                {
+                    py::list result;
+
+                    py::object owner = py::cast(
+                        &embedding,
+                        py::return_value_policy::reference
+                    );
+
+                    for (Parameter* parameter : embedding.parameters()) {
+                        result.append(
+                            py::cast(
+                                parameter,
+                                py::return_value_policy::reference_internal,
+                                owner
+                            )
+                        );
+                    }
+
+                    return result;
+                },
+                "Return the embedding-table Parameter."
+            )
+
+            .def(
+                "__repr__",
+                [](const Embedding& embedding)
+                {
+                    const auto& shape = embedding.table().shape();
+
+                    return
+                        "Embedding(vocab_size=" +
+                        std::to_string(shape[0]) +
+                        ", embedding_dim=" +
+                        std::to_string(shape[1]) +
+                        ")";
+                }
+            );
+    }
+
+    void bindLayerNorm(py::module_& module)
+    {
+        py::class_<LayerNorm>(
+            module,
+            "LayerNorm",
+            "Layer normalization over the final tensor dimension."
+        )
+            .def(
+                py::init<
+                size_t,
+                float
+                >(),
+                py::arg("feature_dim"),
+                py::arg("epsilon") = 1.0e-5f,
+                "Create a LayerNorm layer."
+            )
+
+            .def(
+                "forward",
+                &LayerNorm::forward,
+                py::arg("input"),
+                "Normalize a rank-3 tensor over its final dimension."
+            )
+
+            .def(
+                "backward",
+                &LayerNorm::backward,
+                py::arg("grad_output"),
+                "Backpropagate through LayerNorm."
+            )
+
+            .def(
+                "parameters",
+                [](LayerNorm& layer)
+                {
+                    py::list result;
+
+                    py::object owner = py::cast(
+                        &layer,
+                        py::return_value_policy::reference
+                    );
+
+                    for (Parameter* parameter : layer.parameters()) {
+                        result.append(
+                            py::cast(
+                                parameter,
+                                py::return_value_policy::reference_internal,
+                                owner
+                            )
+                        );
+                    }
+
+                    return result;
+                },
+                "Return the gamma and beta parameters."
+            )
+
+            .def(
+                "__repr__",
+                [](LayerNorm& layer)
+                {
+                    const auto parameters = layer.parameters();
+
+                    return
+                        "LayerNorm(feature_dim=" +
+                        std::to_string(
+                            parameters[0]->value.size()
+                        ) +
+                        ")";
+                }
+            );
+    }
+
+    void bindFFN(py::module_& module)
+    {
+        py::class_<FFN>(
+            module,
+            "FFN",
+            "Two-layer feed-forward network with GELU activation."
+        )
+            .def(
+                py::init<
+                size_t,
+                size_t,
+                Random&
+                >(),
+                py::arg("embed_dim"),
+                py::arg("hidden_dim"),
+                py::arg("rng"),
+                "Create a feed-forward network."
+            )
+
+            .def(
+                "forward",
+                &FFN::forward,
+                py::arg("input"),
+                "Apply the FFN to a rank-3 tensor."
+            )
+
+            .def(
+                "backward",
+                &FFN::backward,
+                py::arg("grad_output"),
+                "Backpropagate through the FFN."
+            )
+
+            .def(
+                "parameters",
+                [](FFN& ffn)
+                {
+                    py::list result;
+
+                    py::object owner = py::cast(
+                        &ffn,
+                        py::return_value_policy::reference
+                    );
+
+                    for (Parameter* parameter : ffn.parameters()) {
+                        result.append(
+                            py::cast(
+                                parameter,
+                                py::return_value_policy::reference_internal,
+                                owner
+                            )
+                        );
+                    }
+
+                    return result;
+                },
+                "Return parameters from both internal linear layers."
+            )
+
+            .def(
+                "__repr__",
+                [](FFN& ffn)
+                {
+                    const auto parameters = ffn.parameters();
+
+                    const size_t hiddenDim =
+                        parameters[0]->value.shape()[0];
+
+                    const size_t embedDim =
+                        parameters[0]->value.shape()[1];
+
+                    return
+                        "FFN(embed_dim=" +
+                        std::to_string(embedDim) +
+                        ", hidden_dim=" +
+                        std::to_string(hiddenDim) +
+                        ")";
+                }
+            );
+    }
+
+    void bindAttentionLayers(py::module_& module)
+    {
+        py::class_<SelfAttention>(
+            module,
+            "SelfAttention",
+            "Single-head causal self-attention."
+        )
+            .def(
+                py::init<
+                size_t,
+                Random&
+                >(),
+                py::arg("embed_dim"),
+                py::arg("rng"),
+                "Create a single-head causal self-attention layer."
+            )
+
+            .def(
+                "forward",
+                &SelfAttention::forward,
+                py::arg("input"),
+                "Apply causal self-attention to a rank-3 tensor."
+            )
+
+            .def(
+                "backward",
+                &SelfAttention::backward,
+                py::arg("grad_output"),
+                "Backpropagate through single-head self-attention."
+            )
+
+            .def(
+                "parameters",
+                [](SelfAttention& attention)
+                {
+                    py::list result;
+
+                    py::object owner = py::cast(
+                        &attention,
+                        py::return_value_policy::reference
+                    );
+
+                    for (Parameter* parameter :
+                        attention.parameters()) {
+                        result.append(
+                            py::cast(
+                                parameter,
+                                py::return_value_policy::reference_internal,
+                                owner
+                            )
+                        );
+                    }
+
+                    return result;
+                },
+                "Return parameters from the Q, K, V, and output projections."
+            )
+
+            .def(
+                "__repr__",
+                [](SelfAttention& attention)
+                {
+                    const auto parameters =
+                        attention.parameters();
+
+                    const size_t embedDim =
+                        parameters[0]->value.shape()[1];
+
+                    return
+                        "SelfAttention(embed_dim=" +
+                        std::to_string(embedDim) +
+                        ")";
+                }
+            );
+
+
+        py::class_<MultiHeadAttention>(
+            module,
+            "MultiHeadAttention",
+            "Multi-head causal self-attention."
+        )
+            .def(
+                py::init<
+                const AttentionConfig&,
+                Random&
+                >(),
+                py::arg("config"),
+                py::arg("rng"),
+                "Create a multi-head attention layer from an AttentionConfig."
+            )
+
+            .def(
+                "forward",
+                &MultiHeadAttention::forward,
+                py::arg("input"),
+                "Apply multi-head causal self-attention to a rank-3 tensor."
+            )
+
+            .def(
+                "backward",
+                &MultiHeadAttention::backward,
+                py::arg("grad_output"),
+                "Backpropagate through multi-head self-attention."
+            )
+
+            .def(
+                "parameters",
+                [](MultiHeadAttention& attention)
+                {
+                    py::list result;
+
+                    py::object owner = py::cast(
+                        &attention,
+                        py::return_value_policy::reference
+                    );
+
+                    for (Parameter* parameter :
+                        attention.parameters()) {
+                        result.append(
+                            py::cast(
+                                parameter,
+                                py::return_value_policy::reference_internal,
+                                owner
+                            )
+                        );
+                    }
+
+                    return result;
+                },
+                "Return parameters from the Q, K, V, and output projections."
+            )
+
+            .def(
+                "__repr__",
+                [](MultiHeadAttention& attention)
+                {
+                    const auto parameters =
+                        attention.parameters();
+
+                    const size_t embedDim =
+                        parameters[0]->value.shape()[1];
+
+                    return
+                        "MultiHeadAttention(embed_dim=" +
+                        std::to_string(embedDim) +
+                        ")";
+                }
+            );
+    }
+
+    void bindTransformerBlock(py::module_& module)
+    {
+        py::class_<TransformerBlock>(
+            module,
+            "TransformerBlock",
+            "Transformer block containing attention, normalization, "
+            "feed-forward mixing, and residual connections."
+        )
+            .def(
+                py::init<
+                const TransformerBlockConfig&,
+                Random&
+                >(),
+                py::arg("config"),
+                py::arg("rng"),
+                "Create a Transformer block from its configuration."
+            )
+
+            .def(
+                "forward",
+                &TransformerBlock::forward,
+                py::arg("input"),
+                "Apply the Transformer block to a rank-3 tensor."
+            )
+
+            .def(
+                "backward",
+                &TransformerBlock::backward,
+                py::arg("grad_output"),
+                "Backpropagate through the Transformer block."
+            )
+
+            .def(
+                "parameters",
+                [](TransformerBlock& block)
+                {
+                    py::list result;
+
+                    py::object owner = py::cast(
+                        &block,
+                        py::return_value_policy::reference
+                    );
+
+                    for (Parameter* parameter : block.parameters()) {
+                        result.append(
+                            py::cast(
+                                parameter,
+                                py::return_value_policy::reference_internal,
+                                owner
+                            )
+                        );
+                    }
+
+                    return result;
+                },
+                "Return all trainable parameters owned by the block."
+            )
+
+            .def(
+                "__repr__",
+                [](TransformerBlock& block)
+                {
+                    const auto parameters = block.parameters();
+
+                    /*
+                        The first parameter belongs to the attention query
+                        projection and has shape [d_model, d_model].
+                    */
+                    const size_t dModel =
+                        parameters.empty()
+                        ? 0
+                        : parameters[0]->value.shape()[1];
+
+                    return
+                        "TransformerBlock(d_model=" +
+                        std::to_string(dModel) +
+                        ", parameters=" +
+                        std::to_string(parameters.size()) +
+                        ")";
+                }
+            );
+    }
+
+    void bindTransformer(py::module_& module)
+    {
+        py::class_<Transformer>(module, "Transformer")
+
+            .def(
+                py::init<
+                const TransformerModelConfig&,
+                Random&
+                >(),
+                py::arg("config"),
+                py::arg("rng")
+            )
+
+            .def(
+                py::init<
+                size_t,
+                size_t,
+                size_t,
+                size_t,
+                size_t,
+                Random&
+                >(),
+                py::arg("vocab_size"),
+                py::arg("context_length"),
+                py::arg("embed_dim"),
+                py::arg("hidden_dim"),
+                py::arg("num_layers"),
+                py::arg("rng")
+            )
+
+            .def(
+                "forward",
+                &Transformer::forward
+            )
+
+            .def(
+                "backward",
+                &Transformer::backward
+            )
+
+            .def(
+                "generate",
+                py::overload_cast<
+                const std::string&,
+                const Tokenizer&,
+                const GenerationConfig&,
+                Random&
+                >(
+                    &Transformer::generate
+                ),
+                py::arg("prompt"),
+                py::arg("tokenizer"),
+                py::arg("config"),
+                py::arg("rng")
+            )
+
+            .def(
+                "generate",
+                py::overload_cast<
+                const std::string&,
+                const Tokenizer&,
+                size_t,
+                float,
+                size_t,
+                Random&
+                >(
+                    &Transformer::generate
+                ),
+                py::arg("prompt"),
+                py::arg("tokenizer"),
+                py::arg("max_new_tokens"),
+                py::arg("temperature"),
+                py::arg("top_k"),
+                py::arg("rng")
+            )
+
+            .def(
+                "parameters",
+                [](Transformer& model)
+                {
+                    py::list result;
+
+                    py::object owner = py::cast(
+                        &model,
+                        py::return_value_policy::reference
+                    );
+
+                    for (Parameter* p : model.parameters())
+                    {
+                        result.append(
+                            py::cast(
+                                p,
+                                py::return_value_policy::reference_internal,
+                                owner
+                            )
+                        );
+                    }
+
+                    return result;
+                }
+            )
+
+            .def(
+                "__repr__",
+                [](Transformer& model)
+                {
+                    return
+                        "Transformer(parameters="
+                        + std::to_string(
+                            model.parameters().size()
+                        )
+                        + ")";
+                }
+            );
+    }
+
 } // namespace
 
 PYBIND11_MODULE(_transformer_toy, module) {
@@ -1016,4 +1989,14 @@ PYBIND11_MODULE(_transformer_toy, module) {
     bindBPETokenizer(module);
     bindTokenizerFactory(module);
     bindTensor(module);
+    bindRandom(module);
+	bindTextDataset(module);
+	bindParameter(module);
+    bindLinear(module);
+	bindEmbedding(module);
+	bindLayerNorm(module);
+    bindFFN(module);
+    bindAttentionLayers(module);
+    bindTransformerBlock(module);
+	bindTransformer(module);
 }

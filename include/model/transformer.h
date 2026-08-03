@@ -68,4 +68,20 @@ public:
     Tensor forward(const Tensor& tokenIds) override;
     void backward(const Tensor& gradOutput) override;
     std::vector<Parameter*> parameters() override;
+
+    Transformer(
+        const Transformer&
+    ) = delete;
+
+    Transformer& operator=(
+        const Transformer&
+        ) = delete;
+
+    Transformer(
+        Transformer&&
+    ) noexcept = default;
+
+    Transformer& operator=(
+        Transformer&&
+        ) noexcept = default;
 };
