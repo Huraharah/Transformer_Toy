@@ -375,3 +375,9 @@ Transformer_Toy is an educational and research-oriented implementation rather th
 Issues and technical feedback are welcome.
 
 The API and internal architecture remain under active development.
+
+## License
+
+Copyright © 2026 Alexander Schoolcraft.
+
+This project is licensed under the Apache License 2.0. See the LICENSE file for details.
