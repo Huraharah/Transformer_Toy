@@ -404,6 +404,9 @@ python/transformer_toy/*.dylib
 smoke_checkpoints*/
 test_tokenizers
 training_history_test.csv
+best_checkpoint_test_best.bin
+checkpoint_test.bin
+epoch_callback_epoch_*.bin
 
 # Visual Studio artifacts
 *.slnx
