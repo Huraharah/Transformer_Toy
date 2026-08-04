@@ -114,10 +114,12 @@ cmake -S . -B build `
 cmake --build build --config Release
 ```
 
-### Verify the native build
+#### Build Targets
 
 ```powershell
-.\build\bin\Release\transformer_toy_tests.exe --core
+--target transformer_toy_tests      # Build the native test harness (.exe)
+--target _transformer_toy           # Build the pybind11 Python extension (.pyd)
+--target transformer_toy_core       # Build the core library (.lib)
 ```
 
 ### Verify the Python bindings
@@ -312,7 +314,7 @@ Planned:
   - Release build installation
   - minimal inference and training examples
 
-#### Post–Milestone 5 architectural completion
+#### Milestone 5.5 — Dropout and Training Mode
 
 - Implement dropout operation
 - Apply attention dropout

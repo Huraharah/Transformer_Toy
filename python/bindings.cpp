@@ -25,6 +25,15 @@
 #include "layers/attention.h"
 #include "layers/transformer_block.h"
 #include "model/transformer.h"
+#include "training/loss.h"
+#include "training/cross_entropy_loss.h"
+#include "training/optimizer.h"
+#include "training/sgd_optimizer.h"
+#include "training/adam_optimizer.h"
+#include "training/training_history.h"
+#include "training/trainer.h"
+#include "training/checkpoint.h"
+
 
 namespace py = pybind11;
 
@@ -1965,6 +1974,509 @@ namespace {
             );
     }
 
+    void bindLosses(py::module_& module)
+    {
+        py::class_<Loss>(
+            module,
+            "Loss",
+            "Abstract base interface for loss functions."
+        )
+            .def(
+                "forward",
+                &Loss::forward,
+                py::arg("predictions"),
+                py::arg("targets"),
+                "Compute the loss and cache the gradient."
+            )
+            .def(
+                "backward",
+                &Loss::backward,
+                "Return the gradient cached by the previous forward pass."
+            );
+
+
+        py::class_<
+            CrossEntropyLoss,
+            Loss
+        >(
+            module,
+            "CrossEntropyLoss",
+            "Mean cross-entropy loss for rank-2 logits and rank-1 class targets."
+        )
+            .def(
+                py::init<>(),
+                "Create a cross-entropy loss object."
+            )
+
+            .def(
+                "forward",
+                &CrossEntropyLoss::forward,
+                py::arg("logits"),
+                py::arg("targets"),
+                "Compute mean cross-entropy loss and cache the logits gradient."
+            )
+
+            .def(
+                "backward",
+                &CrossEntropyLoss::backward,
+                "Return the gradient cached during the previous forward pass."
+            )
+
+            .def(
+                "__repr__",
+                [](const CrossEntropyLoss&)
+                {
+                    return "CrossEntropyLoss()";
+                }
+            );
+    }
+
+    std::vector<Parameter*> collectParameterPointers(
+        const py::iterable& parameters
+    )
+    {
+        std::vector<Parameter*> result;
+
+        for (py::handle item : parameters) {
+            try {
+                Parameter& parameter =
+                    py::cast<Parameter&>(item);
+
+                result.push_back(&parameter);
+            }
+            catch (const py::cast_error&) {
+                throw py::type_error(
+                    "Optimizer parameters must contain "
+                    "transformer_toy.Parameter objects."
+                );
+            }
+        }
+
+        return result;
+    }
+
+    void bindOptimizers(py::module_& module)
+    {
+        py::class_<Optimizer>(
+            module,
+            "Optimizer",
+            "Abstract base interface for parameter optimizers."
+        )
+            .def(
+                "step",
+                [](
+                    Optimizer& optimizer,
+                    const py::iterable& parameters
+                    )
+                {
+                    std::vector<Parameter*> pointers =
+                        collectParameterPointers(parameters);
+
+                    optimizer.step(pointers);
+                },
+                py::arg("parameters"),
+                "Update the supplied parameters."
+            )
+
+            .def(
+                "zero_grad",
+                [](
+                    Optimizer& optimizer,
+                    const py::iterable& parameters
+                    )
+                {
+                    std::vector<Parameter*> pointers =
+                        collectParameterPointers(parameters);
+
+                    optimizer.zeroGrad(pointers);
+                },
+                py::arg("parameters"),
+                "Zero gradients for parameters that require gradients."
+            )
+
+            .def_property(
+                "learning_rate",
+                &Optimizer::getLearningRate,
+                &Optimizer::setLearningRate,
+                "Current optimizer learning rate."
+            );
+
+
+        py::class_<
+            SGDOptimizer,
+            Optimizer
+        >(
+            module,
+            "SGDOptimizer",
+            "Stochastic gradient descent with optional weight decay."
+        )
+            .def(
+                py::init<
+                float,
+                float
+                >(),
+                py::arg("learning_rate"),
+                py::arg("weight_decay") = 0.0f
+            )
+
+            .def(
+                "__repr__",
+                [](const SGDOptimizer& optimizer)
+                {
+                    return
+                        "SGDOptimizer(learning_rate=" +
+                        std::to_string(
+                            optimizer.getLearningRate()
+                        ) +
+                        ")";
+                }
+            );
+
+
+        py::class_<
+            AdamOptimizer,
+            Optimizer
+        >(
+            module,
+            "AdamOptimizer",
+            "Adam optimizer with optional weight decay."
+        )
+            .def(
+                py::init<
+                float,
+                float,
+                float,
+                float,
+                float
+                >(),
+                py::arg("learning_rate") = 0.001f,
+                py::arg("beta1") = 0.9f,
+                py::arg("beta2") = 0.999f,
+                py::arg("epsilon") = 1.0e-8f,
+                py::arg("weight_decay") = 0.0f
+            )
+
+            .def(
+                "__repr__",
+                [](const AdamOptimizer& optimizer)
+                {
+                    return
+                        "AdamOptimizer(learning_rate=" +
+                        std::to_string(
+                            optimizer.getLearningRate()
+                        ) +
+                        ")";
+                }
+            );
+    }
+
+    void bindTrainingHistory(py::module_& module)
+    {
+        py::class_<TrainingHistory>(
+            module,
+            "TrainingHistory",
+            "Recorded training and validation losses."
+        )
+            .def(
+                py::init<>(),
+                "Create an empty training history."
+            )
+
+            .def_property(
+                "train_losses",
+                [](const TrainingHistory& history)
+                {
+                    return history.trainLosses;
+                },
+                [](TrainingHistory& history,
+                    const std::vector<float>& losses)
+                {
+                    history.trainLosses = losses;
+                },
+                "Recorded training losses."
+            )
+
+            .def_property(
+                "validation_losses",
+                [](const TrainingHistory& history)
+                {
+                    return history.validationLosses;
+                },
+                [](TrainingHistory& history,
+                    const std::vector<float>& losses)
+                {
+                    history.validationLosses = losses;
+                },
+                "Recorded validation losses."
+            )
+
+            .def(
+                "add_train_loss",
+                &TrainingHistory::addTrainLoss,
+                py::arg("loss"),
+                "Append a training loss."
+            )
+
+            .def(
+                "add_validation_loss",
+                &TrainingHistory::addValidationLoss,
+                py::arg("loss"),
+                "Append a validation loss."
+            )
+
+            .def_property_readonly(
+                "latest_train_loss",
+                &TrainingHistory::latestTrainLoss,
+                "Most recently recorded training loss."
+            )
+
+            .def_property_readonly(
+                "latest_validation_loss",
+                &TrainingHistory::latestValidationLoss,
+                "Most recently recorded validation loss."
+            )
+
+            .def(
+                "save_csv",
+                &TrainingHistory::saveCsv,
+                py::arg("path"),
+                "Save training and validation losses to a CSV file."
+            )
+
+            .def(
+                "clear",
+                &TrainingHistory::clear,
+                "Remove all recorded losses."
+            )
+
+            .def_property_readonly(
+                "train_count",
+                [](const TrainingHistory& history)
+                {
+                    return history.trainLosses.size();
+                }
+            )
+
+            .def_property_readonly(
+                "validation_count",
+                [](const TrainingHistory& history)
+                {
+                    return history.validationLosses.size();
+                }
+            )
+
+            .def(
+                "__len__",
+                [](const TrainingHistory& history)
+                {
+                    return history.trainLosses.size();
+                }
+            )
+
+            .def(
+                "__repr__",
+                [](const TrainingHistory& history)
+                {
+                    return
+                        "TrainingHistory(train_count=" +
+                        std::to_string(
+                            history.trainLosses.size()
+                        ) +
+                        ", validation_count=" +
+                        std::to_string(
+                            history.validationLosses.size()
+                        ) +
+                        ")";
+                }
+            );
+    }
+
+    void bindTrainingBatch(py::module_& module)
+    {
+        py::class_<TrainingBatch>(
+            module,
+            "TrainingBatch",
+            "A pair of input and target tensors used by Trainer."
+        )
+            .def(
+                py::init<>(),
+                "Create an empty training batch."
+            )
+
+            .def(
+                py::init(
+                    [](
+                        const Tensor& inputs,
+                        const Tensor& targets
+                        )
+                    {
+                        TrainingBatch batch;
+                        batch.inputs = inputs;
+                        batch.targets = targets;
+                        return batch;
+                    }
+                ),
+                py::arg("inputs"),
+                py::arg("targets"),
+                "Create a training batch from input and target tensors."
+            )
+
+            .def_property(
+                "inputs",
+                [](TrainingBatch& batch) -> Tensor&
+                {
+                    return batch.inputs;
+                },
+                [](TrainingBatch& batch, const Tensor& inputs)
+                {
+                    batch.inputs = inputs;
+                },
+                py::return_value_policy::reference_internal,
+                "Input tensor."
+            )
+
+            .def_property(
+                "targets",
+                [](TrainingBatch& batch) -> Tensor&
+                {
+                    return batch.targets;
+                },
+                [](TrainingBatch& batch, const Tensor& targets)
+                {
+                    batch.targets = targets;
+                },
+                py::return_value_policy::reference_internal,
+                "Target tensor."
+            )
+
+            .def(
+                "__repr__",
+                [](const TrainingBatch& batch)
+                {
+                    return
+                        "TrainingBatch(inputs_shape=" +
+                        batch.inputs.shapeString() +
+                        ", targets_shape=" +
+                        batch.targets.shapeString() +
+                        ")";
+                }
+            );
+    }
+
+    void bindCheckpoint(py::module_& module)
+    {
+        py::class_<CheckpointMetadata>(
+            module,
+            "CheckpointMetadata",
+            "Metadata stored alongside model parameters in a checkpoint."
+        )
+            .def(
+                py::init<>(),
+                "Create default checkpoint metadata."
+            )
+
+            .def_readwrite(
+                "epoch",
+                &CheckpointMetadata::epoch,
+                "Epoch associated with the checkpoint."
+            )
+
+            .def_readwrite(
+                "global_step",
+                &CheckpointMetadata::globalStep,
+                "Global training step associated with the checkpoint."
+            )
+
+            .def_readwrite(
+                "run_name",
+                &CheckpointMetadata::runName,
+                "Training run name."
+            )
+
+            .def(
+                "__repr__",
+                [](const CheckpointMetadata& metadata)
+                {
+                    return
+                        "CheckpointMetadata("
+                        "epoch=" +
+                        std::to_string(metadata.epoch) +
+                        ", global_step=" +
+                        std::to_string(metadata.globalStep) +
+                        ", run_name='" +
+                        metadata.runName +
+                        "')";
+                }
+            );
+
+
+        py::class_<Checkpoint>(
+            module,
+            "Checkpoint",
+            "Static checkpoint save and load operations."
+        )
+            .def_static(
+                "save",
+                [](
+                    const std::string& path,
+                    const py::iterable& parameters,
+                    const CheckpointMetadata& metadata,
+                    const TrainingHistory& history
+                    )
+                {
+                    std::vector<Parameter*> parameterPointers =
+                        collectParameterPointers(parameters);
+
+                    /*
+                        The checkpoint implementation reads host-side tensor
+                        storage. Synchronize any CUDA-resident values first.
+                    */
+                    for (Parameter* parameter : parameterPointers) {
+                        parameter->value.toCPU();
+                        parameter->grad.toCPU();
+                    }
+
+                    Checkpoint::save(
+                        path,
+                        parameterPointers,
+                        metadata,
+                        history
+                    );
+                },
+                py::arg("path"),
+                py::arg("parameters"),
+                py::arg("metadata"),
+                py::arg("history"),
+                "Save parameters, metadata, and training history."
+            )
+
+            .def_static(
+                "load",
+                [](
+                    const std::string& path,
+                    const py::iterable& parameters,
+                    CheckpointMetadata& metadata,
+                    TrainingHistory& history
+                    )
+                {
+                    std::vector<Parameter*> parameterPointers =
+                        collectParameterPointers(parameters);
+
+                    Checkpoint::load(
+                        path,
+                        parameterPointers,
+                        metadata,
+                        history
+                    );
+                },
+                py::arg("path"),
+                py::arg("parameters"),
+                py::arg("metadata"),
+                py::arg("history"),
+                "Load checkpoint state into existing parameters, metadata, and history."
+            );
+    }
+
 } // namespace
 
 PYBIND11_MODULE(_transformer_toy, module) {
@@ -1999,4 +2511,9 @@ PYBIND11_MODULE(_transformer_toy, module) {
     bindAttentionLayers(module);
     bindTransformerBlock(module);
 	bindTransformer(module);
+    bindLosses(module);
+    bindOptimizers(module);
+	bindTrainingHistory(module);
+	bindTrainingBatch(module);
+	bindCheckpoint(module);
 }

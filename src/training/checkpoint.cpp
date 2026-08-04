@@ -10,12 +10,43 @@ static void writeString(std::ofstream& out, const std::string& value) {
     out.write(value.data(), size);
 }
 
-static std::string readString(std::ifstream& in) {
+static std::string readString(
+    std::ifstream& in,
+    uint64_t maxSize = 1024 * 1024
+) {
     uint64_t size = 0;
-    in.read(reinterpret_cast<char*>(&size), sizeof(size));
 
-    std::string value(size, '\0');
-    in.read(&value[0], size);
+    if (!in.read(
+        reinterpret_cast<char*>(&size),
+        sizeof(size)
+    )) {
+        throw std::runtime_error(
+            "Checkpoint ended while reading string size."
+        );
+    }
+
+    if (size > maxSize) {
+        throw std::runtime_error(
+            "Checkpoint contains an invalid string size."
+        );
+    }
+
+    std::string value(
+        static_cast<size_t>(size),
+        '\0'
+    );
+
+    if (
+        size > 0 &&
+        !in.read(
+            value.data(),
+            static_cast<std::streamsize>(size)
+        )
+        ) {
+        throw std::runtime_error(
+            "Checkpoint ended while reading string data."
+        );
+    }
 
     return value;
 }
@@ -39,30 +70,106 @@ static void writeTensor(std::ofstream& out, const Tensor& tensor) {
 }
 
 static Tensor readTensor(std::ifstream& in) {
+    constexpr uint64_t MAX_RANK = 16;
+    constexpr uint64_t MAX_ELEMENTS =
+        1ULL << 34;  // Adjust to an appropriate project limit.
+
     uint64_t rank = 0;
-    in.read(reinterpret_cast<char*>(&rank), sizeof(rank));
 
-    std::vector<size_t> shape(rank);
-
-    for (uint64_t i = 0; i < rank; ++i) {
-        uint64_t d = 0;
-        in.read(reinterpret_cast<char*>(&d), sizeof(d));
-        shape[i] = static_cast<size_t>(d);
+    if (!in.read(
+        reinterpret_cast<char*>(&rank),
+        sizeof(rank)
+    )) {
+        throw std::runtime_error(
+            "Checkpoint ended while reading tensor rank."
+        );
     }
 
-    uint64_t size = 0;
-    in.read(reinterpret_cast<char*>(&size), sizeof(size));
+    if (rank > MAX_RANK) {
+        throw std::runtime_error(
+            "Checkpoint contains an invalid tensor rank."
+        );
+    }
+
+    std::vector<size_t> shape(
+        static_cast<size_t>(rank)
+    );
+
+    uint64_t computedSize = 1;
+
+    for (uint64_t index = 0; index < rank; ++index) {
+        uint64_t dimension = 0;
+
+        if (!in.read(
+            reinterpret_cast<char*>(&dimension),
+            sizeof(dimension)
+        )) {
+            throw std::runtime_error(
+                "Checkpoint ended while reading tensor shape."
+            );
+        }
+
+        if (dimension == 0) {
+            throw std::runtime_error(
+                "Checkpoint contains a zero tensor dimension."
+            );
+        }
+
+        if (
+            computedSize >
+            MAX_ELEMENTS / dimension
+            ) {
+            throw std::runtime_error(
+                "Checkpoint tensor size exceeds the allowed limit."
+            );
+        }
+
+        computedSize *= dimension;
+
+        shape[static_cast<size_t>(index)] =
+            static_cast<size_t>(dimension);
+    }
+
+    uint64_t storedSize = 0;
+
+    if (!in.read(
+        reinterpret_cast<char*>(&storedSize),
+        sizeof(storedSize)
+    )) {
+        throw std::runtime_error(
+            "Checkpoint ended while reading tensor size."
+        );
+    }
+
+    if (
+        storedSize != computedSize ||
+        storedSize > MAX_ELEMENTS
+        ) {
+        throw std::runtime_error(
+            "Checkpoint tensor size is invalid."
+        );
+    }
 
     Tensor tensor(shape);
 
-    if (tensor.size() != static_cast<size_t>(size)) {
-        throw std::runtime_error("Checkpoint tensor size mismatch.");
-    }
+    const std::streamsize byteCount =
+        static_cast<std::streamsize>(
+            sizeof(float) * storedSize
+            );
 
-    in.read(
-        reinterpret_cast<char*>(tensor.data().data()),
-        sizeof(float) * size
-    );
+    if (
+        storedSize > 0 &&
+        !in.read(
+            reinterpret_cast<char*>(
+                tensor.data().data()
+                ),
+            byteCount
+        )
+        ) {
+        throw std::runtime_error(
+            "Checkpoint ended while reading tensor data."
+        );
+    }
 
     return tensor;
 }
