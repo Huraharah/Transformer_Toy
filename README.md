@@ -10,7 +10,11 @@ Originally developed as a personal learning project during my graduate studies, 
 
 ## Project Status
 
-The native C++/CUDA training and generation pipeline is operational. Current development focuses on exposing the existing implementation through a Python API using pybind11.
+The native C++/CUDA training and generation pipeline is operational, with additional Python bindings through pybind11 for scripting. Additional training features and architectural improvements are in progress.
+
+### Python Binding Overhead
+
+A matched 53,225-step CUDA shakedown executed through the Python/Jupyter API with equivalent convergence and no measurable overhead relative to the native C++ frontend; the observed Python-driven run completed in 1085.5 seconds versus 1226.8 seconds natively.
 
 ## Current Features
 
@@ -42,24 +46,32 @@ The native C++/CUDA training and generation pipeline is operational. Current dev
 
 ```text
 Transformer_Toy/
-├── src/                        # C++ and CUDA implementation
-│   ├── core/                   # Tensor and mathematical utilities
-│   ├── data/                   # Tokenizers and dataset loading
-│   ├── kernels/                # CUDA kernels and wrappers
-│   ├── layers/                 # Neural-network layers
-│   ├── models/                 # Transformer model implementation
-│   ├── tests/                  # Native tests and test harness
-│   └── training/               # Training, optimization, and callbacks
-├── include/                    # Public headers; mirrors src/
+├── src/                           # C++ and CUDA implementation
+│   ├── core/                      # Tensor and mathematical utilities
+│   ├── data/                      # Tokenizers and dataset loading
+│   ├── kernels/                   # CUDA kernels and wrappers
+│   ├── layers/                    # Neural-network layers
+│   ├── models/                    # Transformer model implementation
+│   ├── tests/                     # Native tests and test harness
+│   └── training/                  # Training, optimization, and callbacks
+├── include/                       # Public headers; mirrors src/
 ├── python/
-│   ├── binding_tests/          # Python binding tests
-│   ├── transformer_toy/        # Python package
-│   └── bindings.cpp            # pybind11 module definitions
-├── data/                       # Example corpora and data files
-├── diagrams/                   # Architecture diagrams
-├── CMakeLists.txt              # CMake build configuration
-├── requirements.txt            # Python development dependencies
-├── dev.ps1                     # Development environment helper
+│   ├── binding_tests/             # Python binding tests
+│   ├── transformer_toy/           # Python package
+│   └── bindings.cpp               # pybind11 module definitions
+├── data/                          # Example corpora and data files
+├── diagrams/                      # Architecture diagrams
+├── benchmarks/                    # Benchmarking scripts and results
+│   ├── python_compare_artifacts/  # Python benchmark artifacts - identical configuration to native
+│   ├── shakedown_checkpoints/     # Shakedown benchmark checkpoints - identical configuration to Python
+│   ├── python_shakedown_artifacts/ # Python shakedown artifacts - different configuration from native, not meant to compare directly
+│   ├── tokenizers/                # Shared tokenizer for the Python and Shakedown benchmarks
+│   ├── native_shakedown.log       # Native shakedown benchmark log
+│   ├── transformer_toy_python_comp.ipynb # Python benchmark notebook
+│   └── transformer_toy_eap_shakedown.ipynb # Python shakedown notebook
+├── CMakeLists.txt                 # CMake build configuration
+├── requirements.txt               # Python development dependencies
+├── dev.ps1                        # Development environment helper
 └── README.md
 ```
 
@@ -286,9 +298,9 @@ Completed:
 
 ### Milestone 5 - Python Bindings
 
-Status: In Progress
+Status: Complete
 
-Planned:
+Completed:
 - Set up pybind11 and the Python extension build
 - Validate the native module
   - import the module from Python

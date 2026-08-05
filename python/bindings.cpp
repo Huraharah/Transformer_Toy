@@ -33,6 +33,12 @@
 #include "training/training_history.h"
 #include "training/trainer.h"
 #include "training/checkpoint.h"
+#include "training/epoch_callback.h"
+#include "training/best_checkpoint_callback.h"
+#include "training/early_stopping_callback.h"
+#include "training/generation_callback.h"
+#include "training/learning_rate_scheduler_callback.h"
+#include "training/checkpoint_callback.h"
 
 
 namespace py = pybind11;
@@ -1860,7 +1866,7 @@ namespace {
 
     void bindTransformer(py::module_& module)
     {
-        py::class_<Transformer>(module, "Transformer")
+        py::class_<Transformer, TrainableModel>(module, "Transformer")
 
             .def(
                 py::init<
@@ -2048,6 +2054,29 @@ namespace {
                 throw py::type_error(
                     "Optimizer parameters must contain "
                     "transformer_toy.Parameter objects."
+                );
+            }
+        }
+
+        return result;
+    }
+
+    std::vector<TrainingBatch> collectTrainingBatches(
+        const py::iterable& batches
+    )
+    {
+        std::vector<TrainingBatch> result;
+
+        for (py::handle item : batches) {
+            try {
+                result.push_back(
+                    py::cast<TrainingBatch>(item)
+                );
+            }
+            catch (const py::cast_error&) {
+                throw py::type_error(
+                    "Trainer batches must contain "
+                    "transformer_toy.TrainingBatch objects."
                 );
             }
         }
@@ -2477,6 +2506,512 @@ namespace {
             );
     }
 
+    void bindTrainableModel(py::module_& module)
+    {
+        py::class_<TrainableModel>(
+            module,
+            "TrainableModel",
+            "Abstract interface implemented by trainable native models."
+        )
+            .def(
+                "forward",
+                &TrainableModel::forward,
+                py::arg("inputs")
+            )
+            .def(
+                "backward",
+                &TrainableModel::backward,
+                py::arg("grad_output")
+            )
+
+            .def(
+                "parameters",
+                [](TrainableModel& model)
+                {
+                    py::list result;
+
+                    py::object owner = py::cast(
+                        &model,
+                        py::return_value_policy::reference
+                    );
+
+                    for (Parameter* parameter : model.parameters()) {
+                        result.append(
+                            py::cast(
+                                parameter,
+                                py::return_value_policy::reference_internal,
+                                owner
+                            )
+                        );
+                    }
+
+                    return result;
+                }
+            );
+    }
+
+    void bindEpochContext(py::module_& module)
+    {
+        py::class_<EpochContext>(
+            module,
+            "EpochContext",
+            "Training state supplied to callbacks at the end of an epoch."
+        )
+            .def(py::init<>())
+
+            .def_readwrite(
+                "epoch",
+                &EpochContext::epoch
+            )
+            .def_readwrite(
+                "total_epochs",
+                &EpochContext::totalEpochs
+            )
+            .def_readwrite(
+                "global_step",
+                &EpochContext::globalStep
+            )
+            .def_readwrite(
+                "train_loss",
+                &EpochContext::trainLoss
+            )
+            .def_readwrite(
+                "validation_loss",
+                &EpochContext::validationLoss
+            )
+            .def_readwrite(
+                "has_validation_loss",
+                &EpochContext::hasValidationLoss
+            )
+            .def_readwrite(
+                "device",
+                &EpochContext::device
+            )
+            .def_readwrite(
+                "run_name",
+                &EpochContext::runName
+            )
+            .def_readwrite(
+                "checkpoint_every_epochs",
+                &EpochContext::checkpointEveryEpochs
+            )
+            .def_readwrite(
+                "checkpoint_directory",
+                &EpochContext::checkpointDirectory
+            )
+
+            .def(
+                "__repr__",
+                [](const EpochContext& context)
+                {
+                    return
+                        "EpochContext(epoch=" +
+                        std::to_string(context.epoch) +
+                        ", total_epochs=" +
+                        std::to_string(context.totalEpochs) +
+                        ", global_step=" +
+                        std::to_string(context.globalStep) +
+                        ", train_loss=" +
+                        std::to_string(context.trainLoss) +
+                        ")";
+                }
+            );
+    }
+
+    void bindEpochCallback(py::module_& module)
+    {
+        py::class_<EpochCallback>(
+            module,
+            "EpochCallback",
+            "Abstract callback invoked at the end of a training epoch."
+        )
+            .def(
+                "on_epoch_end",
+                &EpochCallback::onEpochEnd,
+                py::arg("context"),
+                py::arg("model"),
+                py::arg("optimizer"),
+                py::arg("history")
+            )
+
+            .def_property_readonly(
+                "should_stop_training",
+                &EpochCallback::shouldStopTraining
+            );
+    }
+
+    void bindCheckpointCallback(py::module_& module)
+    {
+        py::class_<
+            CheckpointCallback,
+            EpochCallback
+        >(
+            module,
+            "CheckpointCallback",
+            "Save an epoch checkpoint at a fixed interval."
+        )
+            .def(
+                py::init<
+                const std::string&,
+                int
+                >(),
+                py::arg("checkpoint_directory"),
+                py::arg("every_n_epochs")
+            );
+    }
+
+    void bindBestCheckpointCallback(py::module_& module)
+    {
+        py::class_<
+            BestCheckpointCallback,
+            EpochCallback
+        >(
+            module,
+            "BestCheckpointCallback",
+            "Save a checkpoint whenever the monitored loss improves."
+        )
+            .def(
+                py::init<
+                const std::string&,
+                float,
+                bool
+                >(),
+                py::arg("checkpoint_directory"),
+                py::arg("min_delta") = 0.0f,
+                py::arg("prefer_validation_loss") = true
+            )
+
+            .def_property_readonly(
+                "has_best_checkpoint",
+                &BestCheckpointCallback::hasBestCheckpoint
+            )
+            .def_property_readonly(
+                "best_metric",
+                &BestCheckpointCallback::getBestMetric
+            )
+            .def_property_readonly(
+                "best_epoch",
+                &BestCheckpointCallback::getBestEpoch
+            )
+            .def_property_readonly(
+                "best_checkpoint_path",
+                [](const BestCheckpointCallback& callback)
+                {
+                    return callback.getBestCheckpointPath();
+                }
+            );
+    }
+
+    void bindEarlyStoppingCallback(py::module_& module)
+    {
+        py::class_<
+            EarlyStoppingCallback,
+            EpochCallback
+        >(
+            module,
+            "EarlyStoppingCallback",
+            "Request training termination after a loss metric stops improving."
+        )
+            .def(
+                py::init<
+                int,
+                float,
+                bool
+                >(),
+                py::arg("patience"),
+                py::arg("min_delta") = 0.0f,
+                py::arg("prefer_validation_loss") = true
+            )
+
+            .def_property_readonly(
+                "has_best_metric",
+                &EarlyStoppingCallback::hasBestMetric
+            )
+            .def_property_readonly(
+                "best_metric",
+                &EarlyStoppingCallback::getBestMetric
+            )
+            .def_property_readonly(
+                "best_epoch",
+                &EarlyStoppingCallback::getBestEpoch
+            )
+            .def_property_readonly(
+                "epochs_without_improvement",
+                &EarlyStoppingCallback::getEpochsWithoutImprovement
+            );
+    }
+
+    void bindLearningRateSchedulerCallback(py::module_& module)
+    {
+        py::class_<
+            LearningRateSchedulerCallback,
+            EpochCallback
+        >(
+            module,
+            "LearningRateSchedulerCallback",
+            "Update optimizer learning rate at epoch boundaries."
+        )
+            .def(
+                py::init<
+                LearningRateSchedule,
+                int,
+                float,
+                float
+                >(),
+                py::arg("schedule"),
+                py::arg("step_size") = 1,
+                py::arg("gamma") = 0.1f,
+                py::arg("minimum_learning_rate") = 0.0f
+            )
+
+            .def_property_readonly(
+                "initial_learning_rate",
+                &LearningRateSchedulerCallback::
+                getInitialLearningRate
+            )
+            .def_property_readonly(
+                "current_learning_rate",
+                &LearningRateSchedulerCallback::
+                getCurrentLearningRate
+            );
+    }
+
+    void bindGenerationCallback(py::module_& module)
+    {
+        py::class_<GenerationSnapshot>(
+            module,
+            "GenerationSnapshot",
+            "Generated text captured at the end of an epoch."
+        )
+            .def(py::init<>())
+
+            .def_readwrite(
+                "epoch",
+                &GenerationSnapshot::epoch
+            )
+            .def_readwrite(
+                "text",
+                &GenerationSnapshot::text
+            )
+
+            .def(
+                "__repr__",
+                [](const GenerationSnapshot& snapshot)
+                {
+                    return
+                        "GenerationSnapshot(epoch=" +
+                        std::to_string(snapshot.epoch) +
+                        ", text_length=" +
+                        std::to_string(snapshot.text.size()) +
+                        ")";
+                }
+            );
+
+
+        py::class_<
+            GenerationCallback,
+            EpochCallback
+        >(
+            module,
+            "GenerationCallback",
+            "Generate and retain text snapshots during training."
+        )
+            .def(
+                py::init<
+                const Tokenizer&,
+                const std::string&,
+                const GenerationConfig&,
+                int,
+                bool,
+                uint32_t
+                >(),
+                py::arg("tokenizer"),
+                py::arg("prompt"),
+                py::arg("generation_config"),
+                py::arg("every_n_epochs") = 1,
+                py::arg("print_generated_text") = true,
+                py::arg("random_seed") = 1234,
+
+                /*
+                    GenerationCallback stores a tokenizer reference.
+                    Keep the tokenizer alive as long as the callback lives.
+                */
+                py::keep_alive<1, 2>()
+            )
+
+            .def_property_readonly(
+                "snapshots",
+                [](const GenerationCallback& callback)
+                {
+                    return callback.getSnapshots();
+                }
+            )
+
+            .def_property_readonly(
+                "latest_snapshot",
+                [](const GenerationCallback& callback)
+                {
+                    return callback.getLatestSnapshot();
+                }
+            )
+
+            .def(
+                "clear_snapshots",
+                &GenerationCallback::clearSnapshots
+            );
+    }
+
+    void bindCallbacks(py::module_& module)
+    {
+        bindEpochContext(module);
+        bindEpochCallback(module);
+
+        bindCheckpointCallback(module);
+        bindBestCheckpointCallback(module);
+        bindEarlyStoppingCallback(module);
+        bindLearningRateSchedulerCallback(module);
+        bindGenerationCallback(module);
+    }
+
+    void bindTrainer(py::module_& module)
+    {
+        py::class_<Trainer>(
+            module,
+            "Trainer",
+            "Native training loop for a TrainableModel."
+        )
+            .def(
+                py::init<
+                TrainableModel&,
+                Loss&,
+                Optimizer&,
+                const TrainingConfig&
+                >(),
+                py::arg("model"),
+                py::arg("loss_function"),
+                py::arg("optimizer"),
+                py::arg("config"),
+
+                /*
+                    Trainer stores references to these three objects.
+                    Keep them alive for at least as long as the Trainer.
+                */
+                py::keep_alive<1, 2>(),
+                py::keep_alive<1, 3>(),
+                py::keep_alive<1, 4>()
+            )
+
+            .def_property_readonly(
+                "history",
+                static_cast<TrainingHistory & (Trainer::*)()>(
+                    &Trainer::getHistory
+                    ),
+                py::return_value_policy::reference_internal,
+                "Training history owned by this Trainer."
+            )
+
+            .def(
+                "train",
+                [](
+                    Trainer& trainer,
+                    const py::iterable& trainBatches,
+                    py::object validationBatches
+                    )
+                {
+                    std::vector<TrainingBatch> training =
+                        collectTrainingBatches(
+                            trainBatches
+                        );
+
+                    std::vector<TrainingBatch> validation;
+
+                    const std::vector<TrainingBatch>*
+                        validationPointer = nullptr;
+
+                    if (!validationBatches.is_none()) {
+                        validation =
+                            collectTrainingBatches(
+                                validationBatches.cast<
+                                py::iterable
+                                >()
+                            );
+
+                        validationPointer = &validation;
+                    }
+
+                    /*
+                        Training is entirely native once inputs have been
+                        converted. Release the GIL so notebooks and other
+                        Python threads are not blocked unnecessarily.
+                    */
+                    py::gil_scoped_release release;
+
+                    trainer.train(
+                        training,
+                        validationPointer
+                    );
+                },
+                py::arg("train_batches"),
+                py::arg("validation_batches") = py::none(),
+                "Train for the configured number of epochs."
+            )
+
+            .def(
+                "evaluate",
+                [](
+                    Trainer& trainer,
+                    const py::iterable& validationBatches
+                    )
+                {
+                    std::vector<TrainingBatch> validation =
+                        collectTrainingBatches(
+                            validationBatches
+                        );
+
+                    py::gil_scoped_release release;
+
+                    return trainer.evaluate(
+                        validation
+                    );
+                },
+                py::arg("validation_batches"),
+                "Return mean loss across validation batches."
+            )
+
+            .def(
+                "add_callback",
+                &Trainer::addCallback,
+                py::arg("callback"),
+
+                /*
+                    Trainer stores only an EpochCallback pointer.
+                    Keep the Python callback object alive with Trainer.
+                */
+                py::keep_alive<1, 2>(),
+                "Register an epoch callback."
+            )
+
+            .def(
+                "clear_callbacks",
+                &Trainer::clearCallbacks,
+                "Remove all registered callbacks."
+            )
+
+            .def(
+                "__repr__",
+                [](const Trainer& trainer)
+                {
+                    return
+                        "Trainer(history_entries=" +
+                        std::to_string(
+                            trainer.getHistory()
+                            .trainLosses.size()
+                        ) +
+                        ")";
+                }
+            );
+    }
+
 } // namespace
 
 PYBIND11_MODULE(_transformer_toy, module) {
@@ -2510,10 +3045,13 @@ PYBIND11_MODULE(_transformer_toy, module) {
     bindFFN(module);
     bindAttentionLayers(module);
     bindTransformerBlock(module);
+    bindTrainableModel(module);
 	bindTransformer(module);
     bindLosses(module);
     bindOptimizers(module);
 	bindTrainingHistory(module);
 	bindTrainingBatch(module);
 	bindCheckpoint(module);
+    bindCallbacks(module);
+	bindTrainer(module);
 }

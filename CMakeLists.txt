@@ -46,6 +46,18 @@ foreach(CONFIG_TYPE Debug Release RelWithDebInfo MinSizeRel)
     )
 endforeach()
 
+option(
+    TRANSFORMER_TOY_BUILD_TESTS
+    "Build the native C++ test executable"
+    ON
+)
+
+option(
+    TRANSFORMER_TOY_BUILD_PYTHON
+    "Build the Python extension"
+    ON
+)
+
 # ============================================================
 # CUDA toolkit
 # ============================================================
@@ -153,28 +165,30 @@ file(
     "${CMAKE_CURRENT_SOURCE_DIR}/src/tests/*.cu"
 )
 
-add_executable(
-    transformer_toy_tests
-    ${TRANSFORMER_TOY_TEST_SOURCES}
-)
+if(TRANSFORMER_TOY_BUILD_TESTS)
+    add_executable(
+        transformer_toy_tests
+        ${TRANSFORMER_TOY_TEST_SOURCES}
+    )
 
-target_include_directories(
-    transformer_toy_tests
-    PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/include"
-)
+    target_include_directories(
+        transformer_toy_tests
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
 
-target_link_libraries(
-    transformer_toy_tests
-    PRIVATE
-        transformer_toy_core
-)
+    target_link_libraries(
+        transformer_toy_tests
+        PRIVATE
+            transformer_toy_core
+    )
 
-set_target_properties(
-    transformer_toy_tests
-    PROPERTIES
-        CUDA_SEPARABLE_COMPILATION ON
-)
+    set_target_properties(
+        transformer_toy_tests
+        PROPERTIES
+            CUDA_SEPARABLE_COMPILATION ON
+    )
+endif()
 
 # ============================================================
 # CTest integration
@@ -193,31 +207,40 @@ endif()
 # Python extension module
 # ============================================================
 
-find_package(
-    Python
-    COMPONENTS
-        Interpreter
-        Development.Module
-    REQUIRED
-)
+if(TRANSFORMER_TOY_BUILD_PYTHON)
+    find_package(
+        Python
+        COMPONENTS
+            Interpreter
+            Development.Module
+        REQUIRED
+    )
 
-find_package(
-    pybind11
-    CONFIG
-    REQUIRED
-)
+    find_package(
+        pybind11
+        CONFIG
+        REQUIRED
+    )
 
-pybind11_add_module(
-    _transformer_toy
-    MODULE
-    "${CMAKE_CURRENT_SOURCE_DIR}/python/bindings.cpp"
-)
+    pybind11_add_module(
+        _transformer_toy
+        MODULE
+        "${CMAKE_CURRENT_SOURCE_DIR}/python/bindings.cpp"
+    )
 
-target_link_libraries(
-    _transformer_toy
-    PRIVATE
-        transformer_toy_core
-)
+    target_link_libraries(
+        _transformer_toy
+        PRIVATE
+            transformer_toy_core
+    )
+
+    install(
+        TARGETS _transformer_toy
+        LIBRARY DESTINATION transformer_toy
+        RUNTIME DESTINATION transformer_toy
+        ARCHIVE DESTINATION transformer_toy
+    )
+endif()
 
 target_include_directories(
     _transformer_toy

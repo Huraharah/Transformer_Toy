@@ -1,0 +1,34 @@
+[build-system]
+requires = [
+    "scikit-build-core>=0.10",
+    "pybind11>=3.0",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "transformer-toy"
+version = "0.1.0"
+description = "A C++ and CUDA Transformer learning and experimentation framework."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "numpy",
+]
+
+[project.optional-dependencies]
+notebook = [
+    "jupyter",
+    "ipykernel",
+    "matplotlib",
+]
+
+[tool.scikit-build]
+cmake.build-type = "Release"
+wheel.packages = ["python/transformer_toy"]
+
+# Keep editable rebuild output out of the normal manually-managed build folder.
+build-dir = "build/{wheel_tag}"
+
+[tool.scikit-build.cmake.define]
+TRANSFORMER_TOY_BUILD_TESTS = "OFF"
+TRANSFORMER_TOY_BUILD_PYTHON = "ON"
