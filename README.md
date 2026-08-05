@@ -8,6 +8,10 @@ A C++ learning and experimentation framework for building, inspecting, and modif
 
 Originally developed as a personal learning project during my graduate studies, Transformer_Toy has evolved into a modular experimentation platform for investigating architectural variants, performance optimizations, and future AI safety research.
 
+## Educational goals
+
+Unlike production frameworks such as PyTorch or TensorFlow, Transformer_Toy intentionally exposes the internal mechanics of every major component. The objective is to provide a platform where individual architectural decisions can be inspected, modified, benchmarked, and experimentally compared.
+
 ## Project Status
 
 The native C++/CUDA training and generation pipeline is operational, with additional Python bindings through pybind11 for scripting. Additional training features and architectural improvements are in progress.
