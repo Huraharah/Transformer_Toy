@@ -1,0 +1,23 @@
+{
+  "run_name": "d64_ff512_l4_h4",
+  "d_model": 64,
+  "d_ff": 512,
+  "ffn_ratio": 8.0,
+  "num_layers": 4,
+  "num_heads": 4,
+  "context_length": 64,
+  "batch_size": 32,
+  "completed_epochs": 50,
+  "training_steps": 53250,
+  "elapsed_seconds": 3064.1523854999978,
+  "seconds_per_epoch": 61.283047709999956,
+  "initial_train_loss": 6.375082969665527,
+  "final_train_loss": 1.7085685729980469,
+  "best_epoch": 50,
+  "best_epoch_train_loss": 2.753999948501587,
+  "generalization_gap": 0.5627231597900391,
+  "best_validation_loss": 3.316723108291626,
+  "final_validation_loss": 3.316723108291626,
+  "final_learning_rate": 9.999999974752427e-07,
+  "best_checkpoint_path": "sweeps\\d64_ff512_l4_h4\\checkpoints/d64_ff512_l4_h4_best.bin"
+}

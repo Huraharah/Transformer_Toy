@@ -290,7 +290,7 @@ void runProfileBenchmark(
             ? "enabled"
             : "disabled"
             )
-        << "\n";
+        << std::endl;
 
     // ========================================================
     // Warmup
@@ -424,5 +424,5 @@ void runProfileBenchmark(
         << profiler.tokensPerSecond()
         << "\n"
         << "\n"
-        << "[PASS] Synchronized profiling baseline completed.\n";
+        << "[PASS] Synchronized profiling baseline completed." << std::endl;
 }

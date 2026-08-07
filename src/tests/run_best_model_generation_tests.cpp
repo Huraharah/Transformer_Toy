@@ -25,7 +25,7 @@ namespace {
         std::cout
             << "\n============================================================\n"
             << "|| " << title << "\n"
-            << "============================================================\n\n";
+            << "============================================================\n" << std::endl;
     }
 
     void moveModelToCPU(Transformer& model) {
@@ -154,7 +154,7 @@ void runBestModelGenerationTests() {
         << "  d_model: " << dModel << "\n"
         << "  d_ff: " << dFF << "\n"
         << "  layers: " << numLayers << "\n"
-        << "  heads: " << numHeads << "\n";
+        << "  heads: " << numHeads << std::endl;
 
     /*
         You can either explicitly list cases or generate a full Cartesian
@@ -231,13 +231,13 @@ void runBestModelGenerationTests() {
                     << maxNewTokens << "\n"
                     << "------------------------------------------------------------\n"
                     << generatedText
-                    << "\n------------------------------------------------------------\n";
+                    << "\n------------------------------------------------------------" << std::endl;
             }
         }
     }
 
     std::cout
-        << "\n[PASS] Best-checkpoint generation suite completed.\n";
+        << "\n[PASS] Best-checkpoint generation suite completed." <<std::endl;
 }
 
 void runNarrowBandGenerationTests() {
@@ -349,7 +349,7 @@ void runNarrowBandGenerationTests() {
         << "  d_model: " << dModel << "\n"
         << "  d_ff: " << dFF << "\n"
         << "  layers: " << numLayers << "\n"
-        << "  heads: " << numHeads << "\n";
+        << "  heads: " << numHeads << std::endl;
 
     /*
         You can either explicitly list cases or generate a full Cartesian
@@ -434,12 +434,12 @@ void runNarrowBandGenerationTests() {
                         << maxNewTokens << "\n"
                         << "------------------------------------------------------------\n"
                         << generatedText
-                        << "\n------------------------------------------------------------\n";
+                        << "\n------------------------------------------------------------" << std::endl;
                 }
             }
         }
     }
 
     std::cout
-        << "\n[PASS] Best-checkpoint generation suite completed.\n";
+        << "\n[PASS] Best-checkpoint generation suite completed." << std::endl;
 }

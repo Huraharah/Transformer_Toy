@@ -1,0 +1,23 @@
+{
+  "run_name": "d128_ff256_l2_h2",
+  "d_model": 128,
+  "d_ff": 256,
+  "ffn_ratio": 2.0,
+  "num_layers": 2,
+  "num_heads": 2,
+  "context_length": 64,
+  "batch_size": 32,
+  "completed_epochs": 50,
+  "training_steps": 53250,
+  "elapsed_seconds": 2378.654084099995,
+  "seconds_per_epoch": 47.5730816819999,
+  "initial_train_loss": 6.408238887786865,
+  "final_train_loss": 1.497178316116333,
+  "best_epoch": 50,
+  "best_epoch_train_loss": 2.7136847972869873,
+  "generalization_gap": 0.5966603755950928,
+  "best_validation_loss": 3.31034517288208,
+  "final_validation_loss": 3.31034517288208,
+  "final_learning_rate": 9.999999974752427e-07,
+  "best_checkpoint_path": "sweeps\\d128_ff256_l2_h2\\checkpoints/d128_ff256_l2_h2_best.bin"
+}

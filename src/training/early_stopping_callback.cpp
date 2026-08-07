@@ -55,7 +55,7 @@ void EarlyStoppingCallback::onEpochEnd(
         std::cout
             << "[EARLY_STOP] improvement epoch=" << bestEpoch
             << " metric=" << bestMetric
-            << "\n";
+            << std::endl;
 
         return;
     }
@@ -68,7 +68,7 @@ void EarlyStoppingCallback::onEpochEnd(
         << "/" << patience
         << " best_epoch=" << bestEpoch
         << " best_metric=" << bestMetric
-        << "\n";
+        << std::endl;
 
     if (epochsWithoutImprovement >= patience) {
         stopTraining = true;
@@ -77,7 +77,7 @@ void EarlyStoppingCallback::onEpochEnd(
             << "[EARLY_STOP] stopping at epoch=" << context.epoch
             << " best_epoch=" << bestEpoch
             << " best_metric=" << bestMetric
-            << "\n";
+            << std::endl;
     }
 }
 

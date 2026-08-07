@@ -56,5 +56,5 @@ void CheckpointCallback::onEpochEnd(
         }
     }
 
-    std::cout << "[CALLBACK] Checkpoint saved: " << path << "\n";
+    std::cout << "[CALLBACK] Checkpoint saved: " << path << std::endl;
 }

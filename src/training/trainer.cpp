@@ -416,7 +416,7 @@ void Trainer::train(
                     << globalStep
                     << " loss="
                     << lossValue
-                    << "\n";
+                    << std::endl;
             }
         }
 
@@ -475,7 +475,7 @@ void Trainer::train(
                 << valLoss;
         }
 
-        std::cout << "\n";
+        std::cout << std::endl;
 
         EpochContext context;
         context.epoch = epoch;

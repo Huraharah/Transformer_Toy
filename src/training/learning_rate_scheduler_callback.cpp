@@ -129,7 +129,7 @@ void LearningRateSchedulerCallback::onEpochEnd(
         << "[LR_SCHEDULER] epoch=" << context.epoch
         << " old_lr=" << previousLearningRate
         << " new_lr=" << newLearningRate
-        << "\n";
+        << std::endl;
 }
 
 float LearningRateSchedulerCallback::getInitialLearningRate() const {

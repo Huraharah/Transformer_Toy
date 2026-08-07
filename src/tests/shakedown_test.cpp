@@ -35,7 +35,7 @@ namespace {
         std::cout
             << "\n============================================================\n"
             << "|| " << title << "\n"
-            << "============================================================\n\n";
+            << "============================================================\n" << std::endl;
     }
 
     const char* deviceName(Device device) {
@@ -455,7 +455,7 @@ namespace {
             << "  compression ratio: "
             << static_cast<double>(dataset.rawText().size()) /
             static_cast<double>(allTokenIds.size())
-            << "\n";
+            << std::endl;
 
         TrainingConfig config;
 
@@ -598,7 +598,7 @@ namespace {
             << "  heads: "
             << numHeads << "\n"
             << "  initial learning rate: "
-            << initialLearningRate << "\n\n";
+            << initialLearningRate << "\n" << std::endl;
 
         const auto trainingStart =
             std::chrono::steady_clock::now();
@@ -791,7 +791,7 @@ namespace {
             << "Best checkpoint epoch: "
             << bestMetadata.epoch << "\n"
             << "Best checkpoint path: "
-            << bestCheckpointPath << "\n";
+            << bestCheckpointPath << std::endl;
 
         printSection("Best-Checkpoint Generation");
 
@@ -799,7 +799,7 @@ namespace {
             << "Prompt: \"To be\"\n"
             << "------------------------------------------------------------\n"
             << finalGeneratedText
-            << "\n------------------------------------------------------------\n";
+            << "\n------------------------------------------------------------" << std::endl;
 
         /*
             These are deliberately broad success conditions.
@@ -833,7 +833,7 @@ namespace {
         std::cout
             << "\n[PASS] Full dataset shakedown completed on "
             << deviceName(device)
-            << "\n";
+            << std::endl;
     }
 
 } // namespace
@@ -858,10 +858,10 @@ void runShakedownTests(Device device) {
         }
         else {
             std::cout
-                << "[SKIP] CUDA unavailable; CUDA shakedown skipped.\n";
+                << "[SKIP] CUDA unavailable; CUDA shakedown skipped." << std::endl;
         }
     }
 
     std::cout
-        << "\n[PASS] Shakedown test suite completed.\n";
+        << "\n[PASS] Shakedown test suite completed." << std::endl;
 }

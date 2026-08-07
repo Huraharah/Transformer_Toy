@@ -86,7 +86,7 @@ void BestCheckpointCallback::onEpochEnd(
         << "[BEST] epoch=" << bestEpoch
         << " metric=" << bestMetric
         << " saved=" << bestCheckpointPath
-        << "\n";
+        << std::endl;
 }
 
 bool BestCheckpointCallback::hasBestCheckpoint() const {
