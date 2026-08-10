@@ -414,3 +414,4 @@ epoch_callback_epoch_*.bin
 *.vcxproj.filters
 
 bindings order.txt
+*.msi
