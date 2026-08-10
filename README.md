@@ -343,6 +343,20 @@ Completed:
 - Verify causal config behavior
 - Add training/evaluation mode switching
 
+#### Milestone 5.75 — Generation Optimization
+
+- Add generation-specific timing metrics
+- Separate training time from callback/generation time
+- Add inference-only forward path
+- Implement per-layer KV cache
+- Add prompt prefill stage
+- Add incremental single-token decode
+- Implement CUDA generation path
+- Keep generation tensors resident on GPU
+- Optimize logits extraction / sampling
+- Verify cached vs uncached generation parity
+- Benchmark CPU and CUDA generation throughput
+
 ### Milestone 6 — Architectural Experiments
 
 Planned:
