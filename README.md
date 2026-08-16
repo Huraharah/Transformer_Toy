@@ -188,6 +188,7 @@ cmake --build build --config Release
      --checkpoint          Run checkpointing tests
      --generate-best       Load best checkpoint and run generation suite
      --tokenizer           Run tokenizer specific tests from update
+     --dropout             Run dropout unit tests
 ```
 
 ## Project Roadmap
@@ -332,7 +333,14 @@ Completed:
 
 #### Milestone 5.5 — Dropout and Training Mode
 
+**Status: In Progress**
+
+Completed:
+
 - Implement dropout operation
+
+Planned:
+
 - Apply attention dropout
 - Apply attention projection dropout
 - Apply block residual dropout
@@ -342,6 +350,8 @@ Completed:
 - Honor use_bias throughout configured layers
 - Verify causal config behavior
 - Add training/evaluation mode switching
+- Expose mode/config behavior through Python
+- Add CPU/CUDA correctness and parity tests
 
 #### Milestone 5.75 — Generation Optimization
 
@@ -356,34 +366,6 @@ Completed:
 - Optimize logits extraction / sampling
 - Verify cached vs uncached generation parity
 - Benchmark CPU and CUDA generation throughput
-
-### Milestone 6 — Architectural Experiments
-
-Planned:
-- Deep FFN mixer
-- Gated FFN / SwiGLU-style mixer
-- CNN mixer
-- GRU/LSTM mixer
-- Hybrid block layouts
-- Single-head vs multi-head comparisons
-- Mixed attention-depth experiments
-
-### Milestone 7 — Task Adapters
-
-Planned:
-- Text generation task
-- Code/debug trace modeling
-- Machine-code/debugging assistant experiments
-- Graphormer-lite for graph tasks
-- Possible image recognition adapter
-
-### Milestone 8 — Research Evaluation
-
-Planned:
-- Compare architectures across task types
-- Track loss, perplexity, accuracy, runtime, memory use
-- Evaluate inductive bias suitability by domain
-- Prepare results for possible paper/report
 
 -------
 

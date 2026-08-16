@@ -1,3 +1,4 @@
+#include "tests/test_utils.h"
 #include "core/tensor.h"
 #include "core/random.h"
 #include "layers/linear.h"
@@ -24,12 +25,13 @@
 #include "training/early_stopping_callback.h"
 #include "training/generation_callback.h"
 #include "tests/best_model_generation_tests.h"
-#include <tests/profile_testing.h>
+#include "tests/profile_testing.h"
 #include "kernels/tensor_ops_kernels.cuh"
 #include "kernels/linear_kernels.cuh"
 #include "kernels/activation_kernels.cuh"
 #include "tests/smoke_test.h"
 #include "tests/shakedown_test.h"
+#include "layers/dropout.h"
 
 #include <iostream>
 #include <vector>
@@ -3297,7 +3299,333 @@ void testTextDatasetBPETokenizer() {
     std::cout << "[PASS] Dataset BPE Tokenizer" << std::endl;
 }
 
+/*
+==========================
+|     Dropout Tests      |
+==========================
+*/
 
+void testDropoutProbabilityValidation() {
+    Random rng(42);
+
+    bool threwNegative = false;
+    bool threwOne = false;
+
+    try {
+        Dropout dropout(-0.1f, rng);
+    }
+    catch (const std::invalid_argument&) {
+        threwNegative = true;
+    }
+
+    try {
+        Dropout dropout(1.0f, rng);
+    }
+    catch (const std::invalid_argument&) {
+        threwOne = true;
+    }
+
+    require(
+        threwNegative,
+        "Dropout should reject negative probability."
+    );
+
+    require(
+        threwOne,
+        "Dropout should reject probability >= 1."
+    );
+
+    Dropout zeroDropout(0.0f, rng);
+    Dropout validDropout(0.5f, rng);
+
+    require(
+        nearlyEqual(zeroDropout.probability(), 0.0f),
+        "Dropout p=0 should be valid."
+    );
+
+    require(
+        nearlyEqual(validDropout.probability(), 0.5f),
+        "Dropout p=0.5 should be valid."
+    );
+}
+
+void testDropoutZeroProbability() {
+    Random rng(42);
+    Dropout dropout(0.0f, rng);
+
+    Tensor input({ 2, 3 }, 0.0f);
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        input[i] = static_cast<float>(i + 1);
+    }
+
+    Tensor output = dropout.forward(input);
+
+    require(
+        output.shape() == input.shape(),
+        "Dropout p=0 changed tensor shape."
+    );
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        require(
+            nearlyEqual(output[i], input[i]),
+            "Dropout p=0 changed an activation."
+        );
+    }
+
+    Tensor gradOutput({ 2, 3 }, 2.0f);
+
+    Tensor gradInput =
+        dropout.backward(gradOutput);
+
+    for (size_t i = 0; i < gradInput.size(); ++i) {
+        require(
+            nearlyEqual(
+                gradInput[i],
+                gradOutput[i]
+            ),
+            "Dropout p=0 changed gradient."
+        );
+    }
+}
+
+void testDropoutEvalMode() {
+    Random rng(42);
+    Dropout dropout(0.5f, rng);
+
+    dropout.eval();
+
+    require(
+        !dropout.isTraining(),
+        "Dropout eval() did not disable training mode."
+    );
+
+    Tensor input({ 100 }, 1.0f);
+
+    Tensor output =
+        dropout.forward(input);
+
+    for (size_t i = 0; i < output.size(); ++i) {
+        require(
+            nearlyEqual(output[i], 1.0f),
+            "Dropout modified activation during evaluation."
+        );
+    }
+
+    dropout.train();
+
+    require(
+        dropout.isTraining(),
+        "Dropout train() did not enable training mode."
+    );
+}
+
+void testDropoutTrainingForward() {
+    Random rng(42);
+    Dropout dropout(0.5f, rng);
+
+    Tensor input({ 1000 }, 1.0f);
+
+    Tensor output =
+        dropout.forward(input);
+
+    size_t dropped = 0;
+    size_t kept = 0;
+
+    for (size_t i = 0; i < output.size(); ++i) {
+        if (nearlyEqual(output[i], 0.0f)) {
+            ++dropped;
+        }
+        else if (nearlyEqual(output[i], 2.0f)) {
+            ++kept;
+        }
+        else {
+            throw std::runtime_error(
+                "Dropout output was neither zero nor inverted-scaled."
+            );
+        }
+    }
+
+    require(
+        dropped > 0,
+        "Dropout dropped no activations."
+    );
+
+    require(
+        kept > 0,
+        "Dropout kept no activations."
+    );
+}
+
+void testDropoutBackwardMask() {
+    Random rng(42);
+    Dropout dropout(0.5f, rng);
+
+    Tensor input({ 100 }, 1.0f);
+
+    Tensor output =
+        dropout.forward(input);
+
+    Tensor gradOutput({ 100 }, 3.0f);
+
+    Tensor gradInput =
+        dropout.backward(gradOutput);
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        if (nearlyEqual(output[i], 0.0f)) {
+            require(
+                nearlyEqual(gradInput[i], 0.0f),
+                "Dropped activation received nonzero gradient."
+            );
+        }
+        else {
+            require(
+                nearlyEqual(gradInput[i], 6.0f),
+                "Kept activation received incorrect scaled gradient."
+            );
+        }
+    }
+}
+
+void testDropoutReproducibility() {
+    Random rng1(12345);
+    Random rng2(12345);
+
+    Dropout dropout1(0.3f, rng1);
+    Dropout dropout2(0.3f, rng2);
+
+    Tensor input({ 1000 }, 1.0f);
+
+    Tensor output1 =
+        dropout1.forward(input);
+
+    Tensor output2 =
+        dropout2.forward(input);
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        require(
+            nearlyEqual(
+                output1[i],
+                output2[i]
+            ),
+            "Identical RNG seeds produced different dropout masks."
+        );
+    }
+}
+
+void testDropoutModeTransitionClearsMask() {
+    Random rng(42);
+    Dropout dropout(0.5f, rng);
+
+    Tensor input({ 100 }, 1.0f);
+
+    dropout.forward(input);
+
+    dropout.eval();
+    dropout.train();
+
+    Tensor grad({ 100 }, 1.0f);
+
+    bool threw = false;
+
+    try {
+        dropout.backward(grad);
+    }
+    catch (const std::runtime_error&) {
+        threw = true;
+    }
+
+    require(
+        threw,
+        "Dropout reused a stale mask after mode transition."
+    );
+}
+
+void testDropoutCudaParity() {
+    if (!isCudaAvailable()) {
+        std::cout << "[SKIP] CUDA dropout parity test: CUDA unavailable.\n";
+        return;
+    }
+
+    constexpr float probability = 0.35f;
+    constexpr uint32_t seed = 12345;
+    constexpr size_t elementCount = 4096;
+
+    Random cpuRng(seed);
+    Random cudaRng(seed);
+
+    Dropout cpuDropout(probability, cpuRng);
+    Dropout cudaDropout(probability, cudaRng);
+
+    Tensor cpuInput({ elementCount }, 0.0f);
+
+    for (size_t i = 0; i < elementCount; ++i) {
+        cpuInput[i] = static_cast<float>(i + 1) * 0.01f;
+    }
+
+    Tensor cudaInput = cpuInput;
+    cudaInput.toCUDA();
+
+    Tensor cpuOutput = cpuDropout.forward(cpuInput);
+    Tensor cudaOutput = cudaDropout.forward(cudaInput);
+
+    require(
+        cudaOutput.device() == Device::CUDA,
+        "CUDA dropout forward output did not remain CUDA-resident."
+    );
+
+    cudaOutput.toCPU();
+
+    for (size_t i = 0; i < elementCount; ++i) {
+        require(
+            nearlyEqual(cpuOutput[i], cudaOutput[i]),
+            "CPU/CUDA dropout forward mismatch."
+        );
+    }
+
+    Tensor cpuOutput2 = cpuDropout.forward(cpuInput);
+    Tensor cudaOutput2 = cudaDropout.forward(cudaInput);
+
+    require(
+        cudaOutput2.device() == Device::CUDA,
+        "Second CUDA dropout output did not remain CUDA-resident."
+    );
+
+    cudaOutput2.toCPU();
+
+    for (size_t i = 0; i < elementCount; ++i) {
+        require(
+            nearlyEqual(cpuOutput2[i], cudaOutput2[i]),
+            "CPU/CUDA dropout second-forward mismatch."
+        );
+    }
+
+    Tensor cpuGradOutput({ elementCount }, 0.0f);
+
+    for (size_t i = 0; i < elementCount; ++i) {
+        cpuGradOutput[i] = static_cast<float>(i + 1) * 0.02f;
+    }
+
+    Tensor cudaGradOutput = cpuGradOutput;
+    cudaGradOutput.toCUDA();
+
+    Tensor cpuGradInput = cpuDropout.backward(cpuGradOutput);
+    Tensor cudaGradInput = cudaDropout.backward(cudaGradOutput);
+
+    require(
+        cudaGradInput.device() == Device::CUDA,
+        "CUDA dropout backward output did not remain CUDA-resident."
+    );
+
+    cudaGradInput.toCPU();
+
+    for (size_t i = 0; i < elementCount; ++i) {
+        require(
+            nearlyEqual(cpuGradInput[i], cudaGradInput[i]),
+            "CPU/CUDA dropout backward mismatch."
+        );
+    }
+}
 
 /*
 _______________________________________________________________________________________________________________________________________________________________
@@ -3333,6 +3661,7 @@ int main(int argc, char** argv) {
     bool runGenerationTests = false;
     bool runGenerationFineTune = false;
     bool runTokenizerTests = false;
+    bool runDropoutTests = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "--smoke") {
@@ -3434,6 +3763,11 @@ int main(int argc, char** argv) {
             runSpecificTests = true;
             std::cout << "Tokenizer tests enabled." << std::endl;
         }
+        else if (std::string(argv[i]) == "--dropout") {
+            runDropoutTests = true;
+            runSpecificTests = true;
+            std::cout << "Dropout tests enabled." << std::endl;
+        }
         else if (std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h") {
             std::cout << "Usage: " << argv[0] << " [options]\n";
             std::cout << "Options:\n";
@@ -3457,6 +3791,7 @@ int main(int argc, char** argv) {
             std::cout << "  --checkpoint            Run checkpointing tests\n";
             std::cout << "  --generate-best         Load best checkpoint and run generation suite\n";
             std::cout << "  --tokenizer             Run tokenizer specific tests from update\n";
+            std::cout << "  --dropout               Run dropout unit tests\n";
             return 0;
         }
 		else {
@@ -3599,6 +3934,23 @@ int main(int argc, char** argv) {
             }
 
             testTextDatasetBPETokenizer();
+        }
+
+        if (runDropoutTests || !runSpecificTests) {
+
+            std::cout << "\n==================================================\n";
+            std::cout << "||                Dropout Tests                 ||\n";
+            std::cout << "==================================================\n\n";
+
+            testDropoutProbabilityValidation();
+            testDropoutZeroProbability();
+            testDropoutEvalMode();
+            testDropoutTrainingForward();
+            testDropoutBackwardMask();
+            testDropoutReproducibility();
+            testDropoutModeTransitionClearsMask();
+            testDropoutCudaParity();
+
         }
     
 		std::cout << "\n===================================================\n";
