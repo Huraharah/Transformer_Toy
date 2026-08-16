@@ -2,6 +2,7 @@
 #include "core/math_utils.h"
 #include "core/layer_utils.h"
 #include "core/parameter.h"
+#include "layers/dropout.h"
 
 #include <stdexcept>
 #include <algorithm>
@@ -18,7 +19,8 @@ Transformer::Transformer(const TransformerModelConfig& config, Random& rng)
     tokenEmbedding_(config.vocab_size, config.block.d_model, rng),
     positionEmbedding_(config.max_seq_len, config.block.d_model, rng),
     finalNorm_(config.block.d_model),
-    outputHead_(config.block.d_model, config.vocab_size, rng) {
+    outputHead_(config.block.d_model, config.vocab_size, rng),
+    embeddingDropout_(config.embedding_dropout, rng) {
 
     config_.validate();
 
@@ -135,10 +137,8 @@ Tensor Transformer::forward(
                 positionIds
             );
 
-        x = MathUtils::add(
-            tokenEmbedded,
-            positionEmbedded
-        );
+        x = MathUtils::add(tokenEmbedded, positionEmbedded);
+        x = embeddingDropout_.forward(x);
     }
 
     // ========================================================
@@ -283,16 +283,11 @@ void Transformer::backward(
             gradOutput.device()
         );
 
-        for (
-            auto iterator = blocks_.rbegin();
-            iterator != blocks_.rend();
-            ++iterator
-            ) {
-            grad =
-                iterator->backward(
-                    grad
-                );
+        for (auto iterator = blocks_.rbegin(); iterator != blocks_.rend(); ++iterator) {
+            grad = iterator->backward(grad);
         }
+
+        grad = embeddingDropout_.backward(grad);
     }
 
     // ========================================================
@@ -411,7 +406,11 @@ std::string Transformer::generate(
 ) {
     config.validate();
 
-    return generate(
+    const bool wasTraining = isTraining();
+
+    eval();
+
+    std::string result = generate(
         prompt,
         tokenizer,
         config.maxNewTokens,
@@ -419,6 +418,12 @@ std::string Transformer::generate(
         config.topK,
         rng
     );
+
+    if (wasTraining) {
+        train();
+    }
+
+    return result;
 }
 
 std::vector<Parameter*> Transformer::parameters() {
@@ -439,4 +444,26 @@ std::vector<Parameter*> Transformer::parameters() {
     append(outputHead_.parameters());
 
     return params;
+}
+
+void Transformer::train() {
+    training_ = true;
+    embeddingDropout_.train();
+
+    for (TransformerBlock& block : blocks_) {
+        block.train();
+    }
+}
+
+void Transformer::eval() {
+    training_ = false;
+    embeddingDropout_.eval();
+
+    for (TransformerBlock& block : blocks_) {
+        block.eval();
+    }
+}
+
+bool Transformer::isTraining() const {
+    return training_;
 }

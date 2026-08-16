@@ -5,6 +5,7 @@
 #include "layers/linear.h"
 #include "core/layer_utils.h"
 #include "layers/config.h"
+#include "layers/dropout.h"
 
 class TrainingProfiler;
 
@@ -23,7 +24,7 @@ inline std::string attentionTypeToString(AttentionType type) {
 
 class SelfAttention {
 private:
-    size_t embedDim_;
+    AttentionConfig config_;
 
     Linear queryProj_;
     Linear keyProj_;
@@ -38,15 +39,23 @@ private:
 
     TrainingProfiler* profiler_ = nullptr;
 
+    Dropout attentionDropout_;
+    Dropout projectionDropout_;
+    bool training_ = true;
+
 public:
-    SelfAttention(size_t embedDim, Random& rng);
+    SelfAttention(const AttentionConfig& config, Random& rng);
 
     Tensor forward(const Tensor& input);
     Tensor backward(const Tensor& gradOutput);
 
     void setProfiler(TrainingProfiler* profiler);
 
-	std::vector<Parameter*> parameters();   
+	std::vector<Parameter*> parameters();  
+
+    void train();
+    void eval();
+    bool isTraining() const;
 };
 
 class MultiHeadAttention {
@@ -70,6 +79,10 @@ private:
 
     TrainingProfiler* profiler_ = nullptr;
 
+    Dropout attentionDropout_;
+    Dropout projectionDropout_;
+    bool training_ = true;
+
 public:
     explicit MultiHeadAttention(const AttentionConfig& config, Random& rng);
 
@@ -79,4 +92,8 @@ public:
     void setProfiler(TrainingProfiler* profiler);
 
     std::vector<Parameter*> parameters();
+
+    void train();
+    void eval();
+    bool isTraining() const;
 };

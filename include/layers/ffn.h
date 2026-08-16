@@ -3,6 +3,7 @@
 #include "core/tensor.h"
 #include "core/random.h"
 #include "layers/linear.h"
+#include "layers/dropout.h"
 
 class TrainingProfiler;
 
@@ -20,8 +21,11 @@ private:
 
     std::vector<size_t> cachedInputShape_;
 
+    bool training_ = true;
+    Dropout dropout_;
+
 public:
-    FFN(size_t embedDim, size_t hiddenDim, Random& rng);
+    FFN(size_t embedDim, size_t hiddenDim, float dropoutProbability, Random& rng);
 
     Tensor forward(const Tensor& input);
 
@@ -30,4 +34,8 @@ public:
     void setProfiler(TrainingProfiler* profiler);
 
     std::vector<Parameter*> parameters();
+
+    void train();
+    void eval();
+    bool isTraining() const;
 };

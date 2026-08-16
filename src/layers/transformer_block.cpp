@@ -1,6 +1,7 @@
 #include "layers/transformer_block.h"
 #include "core/math_utils.h"
 #include "core/parameter.h"
+#include "layers/dropout.h"
 
 #include <stdexcept>
 #include <training/training_profiler.h>
@@ -11,27 +12,26 @@ TransformerBlock::TransformerBlock(const TransformerBlockConfig& config, Random&
     hiddenDim_(config.d_ff),
     norm1_(config.d_model),
     norm2_(config.d_model),
-    ffn_(config.d_model, config.d_ff, rng) {
+    ffn_(config.d_model, config.d_ff, config.ffn_dropout, rng),
+    attentionResidualDropout_(config.residual_dropout, rng),
+    ffnResidualDropout_(config.residual_dropout, rng) {
 
     config_.validate();
 
+    AttentionConfig attnCfg(
+        config_.d_model,
+        config_.numHeads,
+        config_.causal,
+        config_.use_bias,
+        config_.attention_dropout,
+        config_.attention_projection_dropout
+    );
+
     if (config_.attentionType == AttentionType::SingleHead) {
-        singleAttention_ = std::make_unique<SelfAttention>(
-            config_.d_model,
-            rng
-        );
+        singleAttention_ = std::make_unique<SelfAttention>(attnCfg, rng);
     }
     else if (config_.attentionType == AttentionType::MultiHead) {
-        AttentionConfig attnCfg(
-            config_.d_model,
-            config_.numHeads,
-            true
-        );
-
-        multiAttention_ = std::make_unique<MultiHeadAttention>(
-            attnCfg,
-            rng
-        );
+        multiAttention_ = std::make_unique<MultiHeadAttention>(attnCfg, rng);
     }
     else {
         throw std::invalid_argument("TransformerBlock: unknown AttentionType.");
@@ -114,6 +114,8 @@ Tensor TransformerBlock::forward(
                 "TransformerBlock: no attention layer initialized."
             );
         }
+
+        attended = attentionResidualDropout_.forward(attended);
     }
 
     {
@@ -153,10 +155,8 @@ Tensor TransformerBlock::forward(
             input.device()
         );
 
-        mixed =
-            ffn_.forward(
-                normed2
-            );
+        mixed = ffn_.forward(normed2);
+        mixed = ffnResidualDropout_.forward(mixed);
     }
 
     {
@@ -197,8 +197,7 @@ Tensor TransformerBlock::backward(
     Tensor gradResidual1Direct =
         gradOutput;
 
-    Tensor gradMixed =
-        gradOutput;
+    Tensor gradMixed = ffnResidualDropout_.backward(gradOutput);
 
     Tensor gradNormed2;
     Tensor gradResidual1FromFFN;
@@ -249,11 +248,9 @@ Tensor TransformerBlock::backward(
             );
     }
 
-    gradInputDirect =
-        gradResidual1;
+    gradInputDirect = gradResidual1;
 
-    gradAttended =
-        gradResidual1;
+    gradAttended = attentionResidualDropout_.backward(gradResidual1);
 
     {
         ScopedProfile profile(
@@ -331,4 +328,40 @@ std::vector<Parameter*> TransformerBlock::parameters() {
     append(norm2_.parameters());
 
     return params;
+}
+
+void TransformerBlock::train() {
+    training_ = true;
+
+    attentionResidualDropout_.train();
+    ffnResidualDropout_.train();
+    ffn_.train();
+
+    if (singleAttention_) {
+        singleAttention_->train();
+    }
+
+    if (multiAttention_) {
+        multiAttention_->train();
+    }
+}
+
+void TransformerBlock::eval() {
+    training_ = false;
+
+    attentionResidualDropout_.eval();
+    ffnResidualDropout_.eval();
+    ffn_.eval();
+
+    if (singleAttention_) {
+        singleAttention_->eval();
+    }
+
+    if (multiAttention_) {
+        multiAttention_->eval();
+    }
+}
+
+bool TransformerBlock::isTraining() const {
+    return training_;
 }

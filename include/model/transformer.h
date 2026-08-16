@@ -23,6 +23,7 @@ private:
 	size_t contextLength_;
     Embedding tokenEmbedding_;
     Embedding positionEmbedding_;
+    bool training_ = true;
 
 	TransformerModelConfig config_;
 
@@ -32,6 +33,8 @@ private:
 
     LayerNorm finalNorm_;
     Linear outputHead_;
+
+    Dropout embeddingDropout_;
 
 public:
     Transformer(
@@ -84,4 +87,8 @@ public:
     Transformer& operator=(
         Transformer&&
         ) noexcept = default;
+
+    void train();
+    void eval();
+    bool isTraining() const;
 };

@@ -21,6 +21,10 @@ public:
     virtual Tensor forward(const Tensor& inputs) = 0;
     virtual void backward(const Tensor& gradOutput) = 0;
     virtual std::vector<Parameter*> parameters() = 0;
+    
+    virtual void train() = 0;
+    virtual void eval() = 0;
+    virtual bool isTraining() const = 0;
 };
 
 struct TrainingBatch {

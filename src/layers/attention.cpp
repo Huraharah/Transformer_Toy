@@ -9,12 +9,15 @@
 #include <stdexcept>
 #include <iostream>
 
-SelfAttention::SelfAttention(size_t embedDim, Random& rng)
-    : embedDim_(embedDim),
-    queryProj_(embedDim, embedDim, rng),
-    keyProj_(embedDim, embedDim, rng),
-    valueProj_(embedDim, embedDim, rng),
-    outputProj_(embedDim, embedDim, rng) {
+SelfAttention::SelfAttention(const AttentionConfig& config, Random& rng)
+    : config_(config),
+    embedDim_(config.embedDim),
+    queryProj_(config.embedDim, config.embedDim, rng),
+    keyProj_(config.embedDim, config.embedDim, rng),
+    valueProj_(config.embedDim, config.embedDim, rng),
+    outputProj_(config.embedDim, config.embedDim, rng),
+    attentionDropout_(config.attention_dropout, rng),
+    projectionDropout_(config.projection_dropout, rng) {
 }
 
 Tensor SelfAttention::forward(const Tensor& input){
@@ -109,6 +112,7 @@ Tensor SelfAttention::forward(const Tensor& input){
 
                 attended.reshape({ batchSize * sequenceLength, embedDim_ });
                 projectedFlat = outputProj_.forward(attended);
+                projectedFlat = projectionDropout_.forward(projectedFlat);
             }
 
             {
@@ -172,6 +176,7 @@ Tensor SelfAttention::forward(const Tensor& input){
 
             attentionOutput.reshape({ batchSize * sequenceLength, embedDim_ });
             projectedFlat = outputProj_.forward(attentionOutput);
+            projectedFlat = projectionDropout_.forward(projectedFlat);
         }
 
         {
@@ -215,6 +220,7 @@ Tensor SelfAttention::backward(const Tensor& gradOutput) {
     {
         ScopedProfile profile(profiler_, ProfilePhase::AttentionOutputProjectionBackward, gradOutput.device());
 
+        flatGradOutput = projectionDropout_.backward(flatGradOutput);
         gradConcatFlat = outputProj_.backward(flatGradOutput);
         gradConcatFlat.reshape({ batchSize, sequenceLength, embedDim_ });
         gradConcat = std::move(gradConcatFlat);
@@ -392,6 +398,22 @@ std::vector<Parameter*> SelfAttention::parameters() {
     return params;
 }
 
+void SelfAttention::train() {
+    training_ = true;
+    attentionDropout_.train();
+    projectionDropout_.train();
+}
+
+void SelfAttention::eval() {
+    training_ = false;
+    attentionDropout_.eval();
+    projectionDropout_.eval();
+}
+
+bool SelfAttention::isTraining() const {
+    return training_;
+}
+
 MultiHeadAttention::MultiHeadAttention(const AttentionConfig& config, Random& rng)
     : config_(config),
     embedDim_(config.embedDim),
@@ -400,7 +422,9 @@ MultiHeadAttention::MultiHeadAttention(const AttentionConfig& config, Random& rn
     queryProj_(config.embedDim, config.embedDim, rng),
     keyProj_(config.embedDim, config.embedDim, rng),
     valueProj_(config.embedDim, config.embedDim, rng),
-    outputProj_(config.embedDim, config.embedDim, rng) {
+    outputProj_(config.embedDim, config.embedDim, rng),
+    attentionDropout_(config.attention_dropout, rng),
+    projectionDropout_(config.projection_dropout, rng) {
 }
 
 Tensor MultiHeadAttention::forward(const Tensor& input){
@@ -497,6 +521,7 @@ Tensor MultiHeadAttention::forward(const Tensor& input){
 
             attended.reshape({ batchSize * sequenceLength, embedDim_ });
             projectedFlat = outputProj_.forward(attended);
+            projectedFlat = projectionDropout_.forward(projectedFlat);
         }
 
         {
@@ -558,6 +583,7 @@ Tensor MultiHeadAttention::forward(const Tensor& input){
 
             attentionOutput.reshape({ batchSize * sequenceLength, embedDim_ });
             projectedFlat = outputProj_.forward(attentionOutput);
+            projectedFlat = projectionDropout_.forward(projectedFlat);
         }
 
         {
@@ -605,6 +631,7 @@ Tensor MultiHeadAttention::backward(const Tensor& gradOutput) {
     {
         ScopedProfile profile(profiler_, ProfilePhase::AttentionOutputProjectionBackward, gradOutput.device());
 
+        flatGradOutput = projectionDropout_.backward(flatGradOutput);
         gradConcatFlat = outputProj_.backward(flatGradOutput);
         gradConcatFlat.reshape({ batchSize, sequenceLength, embedDim_ });
         gradConcat = std::move(gradConcatFlat);
@@ -793,4 +820,20 @@ std::vector<Parameter*> MultiHeadAttention::parameters() {
     append(outputProj_.parameters());
 
     return params;
+}
+
+void MultiHeadAttention::train() {
+    training_ = true;
+    attentionDropout_.train();
+    projectionDropout_.train();
+}
+
+void MultiHeadAttention::eval() {
+    training_ = false;
+    attentionDropout_.eval();
+    projectionDropout_.eval();
+}
+
+bool MultiHeadAttention::isTraining() const {
+    return training_;
 }

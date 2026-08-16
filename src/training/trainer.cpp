@@ -568,6 +568,10 @@ void Trainer::train(
 float Trainer::evaluate(
     const std::vector<TrainingBatch>& validationBatches
 ) {
+    const bool wasTraining = model.isTraining();
+
+    model.eval();
+
     if (validationBatches.empty()) {
         throw std::invalid_argument("Trainer::evaluate received empty validation batches.");
     }
@@ -614,6 +618,10 @@ float Trainer::evaluate(
 
         float lossValue = lossFunction.forward(flatPredictions, flatTargets);
         totalLoss += lossValue;
+    }
+
+    if (wasTraining) {
+        model.train();
     }
 
     return totalLoss / static_cast<float>(validationBatches.size());

@@ -28,6 +28,11 @@ private:
     std::unique_ptr<SelfAttention> singleAttention_;
     std::unique_ptr<MultiHeadAttention> multiAttention_;
 
+    bool training_ = true;
+
+    Dropout attentionResidualDropout_;
+    Dropout ffnResidualDropout_;
+
 public:
     TransformerBlock(const TransformerBlockConfig& config, Random& rng);
 
@@ -53,4 +58,8 @@ public:
     TransformerBlock& operator=(
         TransformerBlock&&
         ) noexcept = default;
+
+    void train();
+    void eval();
+    bool isTraining() const;
 };

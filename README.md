@@ -338,14 +338,14 @@ Completed:
 Completed:
 
 - Implement dropout operation
+- Apply FFN dropout
+- Apply block residual dropout
+- Apply model embedding dropout
 
 Planned:
 
 - Apply attention dropout
 - Apply attention projection dropout
-- Apply block residual dropout
-- Apply FFN dropout
-- Apply model embedding dropout
 - Honor pre_norm versus post_norm
 - Honor use_bias throughout configured layers
 - Verify causal config behavior

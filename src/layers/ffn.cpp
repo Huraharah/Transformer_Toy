@@ -7,11 +7,12 @@
 #include <stdexcept>
 #include <utility>
 
-FFN::FFN(size_t embedDim, size_t hiddenDim, Random& rng)
+FFN::FFN(size_t embedDim, size_t hiddenDim, float dropoutProbability, Random& rng)
     : embedDim_(embedDim),
     hiddenDim_(hiddenDim),
     linear1_(embedDim, hiddenDim, rng),
-    linear2_(hiddenDim, embedDim, rng) {
+    linear2_(hiddenDim, embedDim, rng),
+    dropout_(dropoutProbability, rng){
 }
 
 void FFN::setProfiler(TrainingProfiler* profiler) {
@@ -123,10 +124,8 @@ Tensor FFN::forward(
             hidden.device()
         );
 
-        outputFlat =
-            linear2_.forward(
-                hidden
-            );
+        hidden = dropout_.forward(hidden);
+        outputFlat = linear2_.forward(hidden);
     }
 
     // ========================================================
@@ -227,6 +226,7 @@ Tensor FFN::backward(
         );
 
         gradHidden = linear2_.backward( flatGradOutput);
+        gradHidden = dropout_.backward(gradHidden);
     }
 
     if (
@@ -310,4 +310,18 @@ std::vector<Parameter*> FFN::parameters() {
     params.insert(params.end(), p2.begin(), p2.end());
 
     return params;
+}
+
+void FFN::train() {
+    training_ = true;
+    dropout_.train();
+}
+
+void FFN::eval() {
+    training_ = false;
+    dropout_.eval();
+}
+
+bool FFN::isTraining() const {
+    return training_;
 }
