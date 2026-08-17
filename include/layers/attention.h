@@ -26,6 +26,8 @@ class SelfAttention {
 private:
     AttentionConfig config_;
 
+    size_t embedDim_;
+
     Linear queryProj_;
     Linear keyProj_;
     Linear valueProj_;

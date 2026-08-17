@@ -75,9 +75,12 @@ struct TransformerBlockConfig {
 
     bool pre_norm = true;
     bool use_bias = true;
+    bool causal = true;
 
     float residual_dropout = 0.0f;
     float ffn_dropout = 0.0f;
+    float attention_dropout = 0.0f;
+    float projection_dropout = 0.0f;
 
 	AttentionType attentionType = AttentionType::SingleHead;
     size_t numHeads = 1;
@@ -90,14 +93,20 @@ struct TransformerBlockConfig {
         float residual_dropout_ = 0.0f,
         float ffn_dropout_ = 0.0f,
         bool pre_norm_ = true,
-        bool use_bias_ = true
+        bool use_bias_ = true,
+        bool causal_ = true,
+        float attention_dropout_ = 0.0f,
+        float projection_dropout_ = 0.0f
     )
         : d_model(d_model_),
         d_ff(d_ff_),
         pre_norm(pre_norm_),
         use_bias(use_bias_),
+        causal(causal_),
         residual_dropout(residual_dropout_),
-        ffn_dropout(ffn_dropout_) {
+        ffn_dropout(ffn_dropout_),
+        attention_dropout(attention_dropout_),
+        projection_dropout(projection_dropout_) {
         validate();
     }
 
@@ -136,6 +145,18 @@ struct TransformerBlockConfig {
                     "TransformerBlockConfig: d_model must be divisible by numHeads for MultiHead attention."
                 );
             }
+        }
+
+        if (attention_dropout < 0.0f || attention_dropout >= 1.0f) {
+            throw std::invalid_argument(
+                "TransformerBlockConfig: attention_dropout must be in [0.0, 1.0)."
+            );
+        }
+
+        if (projection_dropout < 0.0f || projection_dropout >= 1.0f) {
+            throw std::invalid_argument(
+                "TransformerBlockConfig: attention_projection_dropout must be in [0.0, 1.0)."
+            );
         }
     }
 };

@@ -24,7 +24,7 @@ TransformerBlock::TransformerBlock(const TransformerBlockConfig& config, Random&
         config_.causal,
         config_.use_bias,
         config_.attention_dropout,
-        config_.attention_projection_dropout
+        config_.projection_dropout
     );
 
     if (config_.attentionType == AttentionType::SingleHead) {

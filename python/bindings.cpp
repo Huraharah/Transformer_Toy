@@ -1558,13 +1558,10 @@ namespace {
             "Two-layer feed-forward network with GELU activation."
         )
             .def(
-                py::init<
-                size_t,
-                size_t,
-                Random&
-                >(),
+                py::init<size_t, size_t, float, Random&>(),
                 py::arg("embed_dim"),
                 py::arg("hidden_dim"),
+                py::arg("dropout_probability"),
                 py::arg("rng"),
                 "Create a feed-forward network."
             )
@@ -1639,11 +1636,8 @@ namespace {
             "Single-head causal self-attention."
         )
             .def(
-                py::init<
-                size_t,
-                Random&
-                >(),
-                py::arg("embed_dim"),
+                py::init<const AttentionConfig&, Random&>(),
+                py::arg("config"),
                 py::arg("rng"),
                 "Create a single-head causal self-attention layer."
             )
