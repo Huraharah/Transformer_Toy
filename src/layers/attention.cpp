@@ -102,7 +102,8 @@ Tensor SelfAttention::forward(const Tensor& input){
                 cachedAttentionWeights_.deviceData(),
                 batchSize,
                 sequenceLength,
-                embedDim_
+                embedDim_,
+                config_.causal
             );
 
             cachedDroppedAttentionWeights_ =
@@ -114,7 +115,8 @@ Tensor SelfAttention::forward(const Tensor& input){
                 attended.deviceData(),
                 batchSize,
                 sequenceLength,
-                embedDim_
+                embedDim_,
+                config_.causal
             );
 
             {
@@ -278,7 +280,8 @@ Tensor SelfAttention::backward(const Tensor& gradOutput) {
                 gradV.deviceData(),
                 batchSize,
                 sequenceLength,
-                embedDim_
+                embedDim_,
+                config_.causal
             );
 
             Tensor gradAttentionWeights =
@@ -293,7 +296,8 @@ Tensor SelfAttention::backward(const Tensor& gradOutput) {
                 gradK.deviceData(),
                 batchSize,
                 sequenceLength,
-                embedDim_
+                embedDim_,
+                config_.causal
             );
 
             gradQ.reshape({ batchSize * sequenceLength, embedDim_ });
@@ -562,7 +566,8 @@ Tensor MultiHeadAttention::forward(const Tensor& input){
                 batchSize,
                 sequenceLength,
                 numHeads_,
-                headDim_
+                headDim_,
+                config_.causal
             );
 
             cachedDroppedAttentionWeights_ = attentionDropout_.forward(cachedAttentionWeights_);
@@ -574,7 +579,8 @@ Tensor MultiHeadAttention::forward(const Tensor& input){
                 batchSize,
                 sequenceLength,
                 numHeads_,
-                headDim_
+                headDim_,
+                config_.causal
             );
 
         }
@@ -742,7 +748,8 @@ Tensor MultiHeadAttention::backward(const Tensor& gradOutput) {
                 batchSize,
                 sequenceLength,
                 numHeads_,
-                headDim_
+                headDim_,
+                config_.causal
             );
 
             Tensor gradAttentionWeights = attentionDropout_.backward(gradDroppedWeights);
@@ -751,13 +758,14 @@ Tensor MultiHeadAttention::backward(const Tensor& gradOutput) {
                 cachedQ_.deviceData(),
                 cachedK_.deviceData(),
                 cachedAttentionWeights_.deviceData(),
-                gradConcat.deviceData(),
+                gradAttentionWeights.deviceData(),
                 gradQ.deviceData(),
                 gradK.deviceData(),
                 batchSize,
                 sequenceLength,
                 numHeads_,
-                headDim_
+                headDim_,
+                config_.causal
             );
         }
 

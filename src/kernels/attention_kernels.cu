@@ -10,7 +10,8 @@ namespace kernels {
         float* attentionWeights,
         size_t batchSize,
         size_t sequenceLength,
-        size_t embedDim
+        size_t embedDim,
+        bool causal
     ) {
         size_t b = blockIdx.x;
         size_t t = blockIdx.y;
@@ -22,7 +23,9 @@ namespace kernels {
         float scale = rsqrtf(static_cast<float>(embedDim));
         float maxScore = -3.402823466e+38F;
 
-        for (size_t j = 0; j <= t; ++j) {
+        size_t keyLimit = causal ? t + 1 : sequenceLength;
+
+        for (size_t j = 0; j < keyLimit; ++j) {
             float score = 0.0f;
 
             for (size_t f = 0; f < embedDim; ++f) {
@@ -40,7 +43,7 @@ namespace kernels {
 
         float sumExp = 0.0f;
 
-        for (size_t j = 0; j <= t; ++j) {
+        for (size_t j = 0; j < keyLimit; ++j) {
             float score = 0.0f;
 
             for (size_t f = 0; f < embedDim; ++f) {
@@ -64,7 +67,7 @@ namespace kernels {
             size_t weightIndex =
                 (b * sequenceLength + t) * sequenceLength + j;
 
-            if (j <= t) {
+            if (j < keyLimit) {
                 attentionWeights[weightIndex] /= sumExp;
             }
             else {
@@ -79,7 +82,8 @@ namespace kernels {
         float* output,
         size_t batchSize,
         size_t sequenceLength,
-        size_t embedDim
+        size_t embedDim,
+        bool causal
     ) {
         size_t b = blockIdx.x;
         size_t t = blockIdx.y;
@@ -94,7 +98,9 @@ namespace kernels {
         for (size_t f = 0; f < embedDim; ++f) {
             float sum = 0.0f;
 
-            for (size_t j = 0; j <= t; ++j) {
+            size_t keyLimit = causal ? t + 1 : sequenceLength;
+
+            for (size_t j = 0; j < keyLimit; ++j) {
                 sum +=
                     droppedAttentionWeights[attentionRowBase + j] *
                     v[(b * sequenceLength + j) * embedDim + f];
@@ -112,7 +118,8 @@ namespace kernels {
         float* gradV,
         size_t batchSize,
         size_t sequenceLength,
-        size_t embedDim
+        size_t embedDim,
+        bool causal
     ) {
         size_t b = blockIdx.x;
         size_t t = blockIdx.y;
@@ -128,7 +135,9 @@ namespace kernels {
         size_t attentionRowBase =
             (b * sequenceLength + t) * sequenceLength;
 
-        for (size_t j = threadId; j <= t; j += blockDim.x) {
+        size_t keyLimit = causal ? t + 1 : sequenceLength;
+
+        for (size_t j = threadId; j < keyLimit; j += blockDim.x) {
             size_t keyValueBase =
                 (b * sequenceLength + j) * embedDim;
 
@@ -163,7 +172,8 @@ namespace kernels {
         float* gradK,
         size_t batchSize,
         size_t sequenceLength,
-        size_t embedDim
+        size_t embedDim,
+		bool causal
     ) {
         size_t b = blockIdx.x;
         size_t t = blockIdx.y;
@@ -186,7 +196,9 @@ namespace kernels {
 
         float localWeightedSum = 0.0f;
 
-        for (size_t j = threadId; j <= t; j += blockDim.x) {
+		size_t keyLimit = causal ? t + 1 : sequenceLength;
+
+        for (size_t j = threadId; j < keyLimit; j += blockDim.x) {
             localWeightedSum +=
                 gradAttentionWeights[attentionRowBase + j] *
                 attentionWeights[attentionRowBase + j];
@@ -206,7 +218,7 @@ namespace kernels {
 
         float weightedSum = reduction[0];
 
-        for (size_t j = threadId; j <= t; j += blockDim.x) {
+        for (size_t j = threadId; j < keyLimit; j += blockDim.x) {
             size_t keyBase =
                 (b * sequenceLength + j) * embedDim;
 
@@ -239,7 +251,8 @@ namespace kernels {
         size_t batchSize,
         size_t sequenceLength,
         size_t numHeads,
-        size_t headDim
+        size_t headDim,
+		bool causal
     ) {
         size_t b = blockIdx.x;
         size_t h = blockIdx.y;
@@ -254,7 +267,9 @@ namespace kernels {
 
         float maxScore = -3.402823466e+38F;
 
-        for (size_t j = 0; j <= t; ++j) {
+		size_t keyLimit = causal ? t + 1 : sequenceLength;
+
+		for (size_t j = 0; j < keyLimit; ++j) {
             float score = 0.0f;
 
             for (size_t f = 0; f < headDim; ++f) {
@@ -274,7 +289,7 @@ namespace kernels {
 
         float sumExp = 0.0f;
 
-        for (size_t j = 0; j <= t; ++j) {
+		for (size_t j = 0; j < keyLimit; ++j) {
             float score = 0.0f;
 
             for (size_t f = 0; f < headDim; ++f) {
@@ -300,7 +315,7 @@ namespace kernels {
             size_t weightIndex =
                 ((b * numHeads + h) * sequenceLength + t) * sequenceLength + j;
 
-            if (j <= t) {
+            if (j < keyLimit) {
                 attentionWeights[weightIndex] /= sumExp;
             }
             else {
@@ -316,7 +331,8 @@ namespace kernels {
         size_t batchSize,
         size_t sequenceLength,
         size_t numHeads,
-        size_t headDim
+        size_t headDim,
+		bool causal
         ) {
 
         size_t b = blockIdx.x;
@@ -334,7 +350,9 @@ namespace kernels {
 
             float sum = 0.0f;
 
-            for (size_t j = 0; j <= t; ++j) {
+			size_t keyLimit = causal ? t + 1 : sequenceLength;
+
+			for (size_t j = 0; j < keyLimit; ++j) {
                 float weight =
                     attentionWeights[
                         ((b * numHeads + h) * sequenceLength + t) * sequenceLength + j
@@ -358,7 +376,8 @@ namespace kernels {
         size_t batchSize,
         size_t sequenceLength,
         size_t numHeads,
-        size_t headDim
+        size_t headDim,
+		bool causal
     ) {
         size_t b = blockIdx.x;
         size_t h = blockIdx.y;
@@ -373,7 +392,9 @@ namespace kernels {
         size_t queryBase = (b * sequenceLength + t) * embedDim;
         size_t attentionRowBase = ((b * numHeads + h) * sequenceLength + t) * sequenceLength;
 
-        for (size_t j = threadId; j <= t; j += blockDim.x) {
+		size_t keyLimit = causal ? t + 1 : sequenceLength;
+
+        for (size_t j = threadId; j < keyLimit; j += blockDim.x) {
             size_t keyValueBase = (b * sequenceLength + j) * embedDim;
             float gradWeight = 0.0f;
 
@@ -403,7 +424,8 @@ namespace kernels {
         size_t batchSize,
         size_t sequenceLength,
         size_t numHeads,
-        size_t headDim
+        size_t headDim,
+		bool causal
     ) {
         size_t b = blockIdx.x;
         size_t h = blockIdx.y;
@@ -424,7 +446,9 @@ namespace kernels {
 
         float localWeightedSum = 0.0f;
 
-        for (size_t j = threadId; j <= t; j += blockDim.x) {
+		size_t keyLimit = causal ? t + 1 : sequenceLength;
+
+        for (size_t j = threadId; j < keyLimit; j += blockDim.x) {
             localWeightedSum +=
                 gradAttentionWeights[attentionRowBase + j] *
                 attentionWeights[attentionRowBase + j];
@@ -443,7 +467,7 @@ namespace kernels {
 
         float weightedSum = reduction[0];
 
-        for (size_t j = threadId; j <= t; j += blockDim.x) {
+        for (size_t j = threadId; j < keyLimit; j += blockDim.x) {
             size_t keyValueBase = (b * sequenceLength + j) * embedDim;
 
             float gradScore =
@@ -477,7 +501,8 @@ void launchSelfAttentionWeightsForward(
     float* attentionWeights,
     size_t batchSize,
     size_t sequenceLength,
-    size_t embedDim
+    size_t embedDim,
+	bool causal
 ) {
     if (batchSize == 0 || sequenceLength == 0 || embedDim == 0) {
         return;
@@ -490,13 +515,14 @@ void launchSelfAttentionWeightsForward(
 
     dim3 block(1);
 
-    kernels::selfAttentionWeightsForwardKernel << <grid, block >> > (
+    kernels::selfAttentionWeightsForwardKernel<<<grid, block>>>(
         q,
         k,
         attentionWeights,
         batchSize,
         sequenceLength,
-        embedDim
+        embedDim,
+		causal
         );
 
     CUDA_CHECK(cudaGetLastError());
@@ -508,7 +534,8 @@ void launchSelfAttentionValuesForward(
     float* output,
     size_t batchSize,
     size_t sequenceLength,
-    size_t embedDim
+    size_t embedDim,
+	bool causal
 ) {
     if (batchSize == 0 || sequenceLength == 0 || embedDim == 0) {
         return;
@@ -521,13 +548,14 @@ void launchSelfAttentionValuesForward(
 
     dim3 block(1);
 
-    kernels::selfAttentionValuesForwardKernel << <grid, block >> > (
+    kernels::selfAttentionValuesForwardKernel<<<grid, block>>>(
         v,
         droppedAttentionWeights,
         output,
         batchSize,
         sequenceLength,
-        embedDim
+        embedDim,
+		causal
         );
 
     CUDA_CHECK(cudaGetLastError());
@@ -541,7 +569,8 @@ void launchSelfAttentionBackwardValues(
     float* gradV,
     size_t batchSize,
     size_t sequenceLength,
-    size_t embedDim
+    size_t embedDim,
+	bool causal
 ) {
     constexpr unsigned int maximumThreads = 256;
 
@@ -558,7 +587,7 @@ void launchSelfAttentionBackwardValues(
 
     dim3 block(threads);
 
-    kernels::selfAttentionBackwardValuesKernel << <grid, block >> > (
+    kernels::selfAttentionBackwardValuesKernel<<<grid, block>>>(
         v,
         droppedAttentionWeights,
         gradOutput,
@@ -566,7 +595,8 @@ void launchSelfAttentionBackwardValues(
         gradV,
         batchSize,
         sequenceLength,
-        embedDim
+        embedDim,
+		causal
         );
 
     CUDA_CHECK(cudaGetLastError());
@@ -581,7 +611,8 @@ void launchSelfAttentionBackwardWeights(
     float* gradK,
     size_t batchSize,
     size_t sequenceLength,
-    size_t embedDim
+    size_t embedDim,
+	bool causal
 ) {
     constexpr unsigned int maximumThreads = 256;
 
@@ -601,11 +632,7 @@ void launchSelfAttentionBackwardWeights(
     size_t sharedMemoryBytes =
         threads * sizeof(float);
 
-    kernels::selfAttentionBackwardWeightsKernel << <
-        grid,
-        block,
-        sharedMemoryBytes
-        >> > (
+    kernels::selfAttentionBackwardWeightsKernel<<<grid, block, sharedMemoryBytes>>> (
             q,
             k,
             attentionWeights,
@@ -614,7 +641,8 @@ void launchSelfAttentionBackwardWeights(
             gradK,
             batchSize,
             sequenceLength,
-            embedDim
+            embedDim,
+		causal
             );
 
     CUDA_CHECK(cudaGetLastError());
@@ -627,7 +655,8 @@ void launchMultiHeadAttentionWeightsForward(
     size_t batchSize,
     size_t sequenceLength,
     size_t numHeads,
-    size_t headDim
+    size_t headDim,
+	bool causal
 ) {
     if (
         batchSize == 0 ||
@@ -653,7 +682,8 @@ void launchMultiHeadAttentionWeightsForward(
         batchSize,
         sequenceLength,
         numHeads,
-        headDim
+        headDim,
+		causal
         );
 
     CUDA_CHECK(cudaGetLastError());    
@@ -666,7 +696,8 @@ void launchMultiHeadAttentionValuesForward(
     size_t batchSize,
     size_t sequenceLength,
     size_t numHeads,
-    size_t headDim
+    size_t headDim,
+	bool causal
 ) {
     if (
         batchSize == 0 ||
@@ -692,7 +723,8 @@ void launchMultiHeadAttentionValuesForward(
         batchSize,
         sequenceLength,
         numHeads,
-        headDim
+        headDim,
+		causal
         );
 
     CUDA_CHECK(cudaGetLastError());
@@ -707,7 +739,8 @@ void launchMultiHeadAttentionBackwardValues(
     size_t batchSize,
     size_t sequenceLength,
     size_t numHeads,
-    size_t headDim
+    size_t headDim,
+	bool causal
 ) {
     constexpr unsigned int maximumThreads = 256;
 
@@ -730,16 +763,17 @@ void launchMultiHeadAttentionBackwardValues(
     dim3 block(threads);
 
     kernels::multiHeadAttentionBackwardValuesKernel<<<grid, block>>>(
-            v,
-            droppedAttentionWeights,
-            gradOutput,
-            gradDroppedWeights,
-            gradV,
-            batchSize,
-            sequenceLength,
-            numHeads,
-            headDim
-            );
+        v,
+        droppedAttentionWeights,
+        gradOutput,
+        gradDroppedWeights,
+        gradV,
+        batchSize,
+        sequenceLength,
+        numHeads,
+        headDim,
+		causal
+        );
 
     CUDA_CHECK(cudaGetLastError());
 }
@@ -754,7 +788,8 @@ void launchMultiHeadAttentionBackwardWeights(
     size_t batchSize,
     size_t sequenceLength,
     size_t numHeads,
-    size_t headDim
+    size_t headDim,
+	bool causal
 ) {
     constexpr unsigned int maximumThreads = 256;
 
@@ -789,7 +824,8 @@ void launchMultiHeadAttentionBackwardWeights(
         batchSize,
         sequenceLength,
         numHeads,
-        headDim
+        headDim,
+		causal
         );
 
     CUDA_CHECK(cudaGetLastError());
