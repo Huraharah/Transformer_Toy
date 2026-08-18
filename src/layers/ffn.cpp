@@ -7,11 +7,11 @@
 #include <stdexcept>
 #include <utility>
 
-FFN::FFN(size_t embedDim, size_t hiddenDim, float dropoutProbability, Random& rng)
+FFN::FFN(size_t embedDim, size_t hiddenDim, float dropoutProbability, Random& rng, bool useBias)
     : embedDim_(embedDim),
     hiddenDim_(hiddenDim),
-    linear1_(embedDim, hiddenDim, rng),
-    linear2_(hiddenDim, embedDim, rng),
+    linear1_(embedDim, hiddenDim, rng, useBias),
+    linear2_(hiddenDim, embedDim, rng, useBias),
     dropout_(dropoutProbability, rng){
 }
 

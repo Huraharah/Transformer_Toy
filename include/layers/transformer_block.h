@@ -37,7 +37,12 @@ public:
     TransformerBlock(const TransformerBlockConfig& config, Random& rng);
 
     Tensor forward(const Tensor& input);
+    Tensor forwardPreNorm(const Tensor& input);
+    Tensor forwardPostNorm(const Tensor& input);
+
 	Tensor backward(const Tensor& gradOutput);
+    Tensor backwardPreNorm(const Tensor& gradOutput);
+    Tensor backwardPostNorm(const Tensor& gradOutput);
 
     void setProfiler(TrainingProfiler* profiler);
 

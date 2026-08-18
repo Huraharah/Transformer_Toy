@@ -17,7 +17,7 @@ struct AttentionConfig {
         return embedDim / numHeads;
     }
 
-    bool causal = false;
+    bool causal = true;
     bool use_bias = true;
 
     float attention_dropout = 0.0f;
@@ -28,7 +28,7 @@ struct AttentionConfig {
     AttentionConfig(
         size_t embedDim_,
         size_t numHeads_,
-        bool causal_ = false,
+        bool causal_ = true,
         bool use_bias_ = true,
         float attention_dropout_ = 0.0f,
         float projection_dropout_ = 0.0f

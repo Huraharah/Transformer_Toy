@@ -11,20 +11,20 @@ namespace kernels {
 		float* output,
 		size_t batchSize,
 		size_t inFeatures,
-		size_t outFeatures
+		size_t outFeatures,
+		bool useBias
 	) {
 		size_t row = blockIdx.y * blockDim.y + threadIdx.y;
 		size_t col = blockIdx.x * blockDim.x + threadIdx.x;
 		if (row >= batchSize || col >= outFeatures) {
 			return;
 		}
-		float sum = 0.0f;
+
+		float sum = useBias? bias[col] : 0.0f;
 		for (size_t k = 0; k < inFeatures; ++k) {
 			sum += input[row * inFeatures + k] * weights[col * inFeatures + k];
 		}
-		if (bias != nullptr) {
-			sum += bias[col];
-		}
+
 		output[row * outFeatures + col] = sum;
 	}
 
@@ -110,7 +110,6 @@ void launchLinearForward(
 	size_t outFeatures,
 	bool useBias
 ) {
-	if (useBias) {
 		constexpr int TILE = 16;
 
 		dim3 block(TILE, TILE);
@@ -120,11 +119,9 @@ void launchLinearForward(
 			(batchSize + TILE - 1) / TILE
 		);
 
-		kernels::linearForwardKernel<<<grid, block>>>(input, weights, bias, output, batchSize, inFeatures, outFeatures);
+		kernels::linearForwardKernel<<<grid, block>>>(input, weights, bias, output, batchSize, inFeatures, outFeatures, useBias);
 
 		CUDA_CHECK(cudaGetLastError());
-		
-	}
 }
 
 void launchLinearBackward(
@@ -136,7 +133,8 @@ void launchLinearBackward(
 	float* gradBias,
 	size_t batchSize,
 	size_t inFeatures,
-	size_t outFeatures
+	size_t outFeatures,
+	bool useBias
 ) {
 	if (batchSize == 0 || inFeatures == 0 || outFeatures == 0) {
 		return;
@@ -181,13 +179,15 @@ void launchLinearBackward(
 	int threads = 256;
 	int blocks = static_cast<int>((outFeatures + threads - 1) / threads);
 
-	kernels::linearBackwardBiasKernel<<<blocks, threads>>>(
-		gradOutput,
-		gradBias,
-		batchSize,
-		outFeatures
-		);
+	if (useBias) {
+		kernels::linearBackwardBiasKernel << <blocks, threads >> > (
+			gradOutput,
+			gradBias,
+			batchSize,
+			outFeatures
+			);
 
-	CUDA_CHECK(cudaGetLastError());
+		CUDA_CHECK(cudaGetLastError());
+	}
 	
 }

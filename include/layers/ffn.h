@@ -25,7 +25,7 @@ private:
     Dropout dropout_;
 
 public:
-    FFN(size_t embedDim, size_t hiddenDim, float dropoutProbability, Random& rng);
+    FFN(size_t embedDim, size_t hiddenDim, float dropoutProbability, Random& rng, bool useBias = true);
 
     Tensor forward(const Tensor& input);
 

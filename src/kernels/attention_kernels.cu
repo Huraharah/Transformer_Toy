@@ -327,7 +327,7 @@ namespace kernels {
             return;
         }
 
-        size_t embedDim = offsetof * headDim;
+        size_t embedDim = numHeads * headDim;
 
         for (size_t f = 0; f < headDim; ++f) {
             size_t globalF = h * headDim + f;
@@ -695,7 +695,7 @@ void launchMultiHeadAttentionValuesForward(
         headDim
         );
 
-    CUDA_CHECK(cudatGetLastError());
+    CUDA_CHECK(cudaGetLastError());
 }
 
 void launchMultiHeadAttentionBackwardValues(

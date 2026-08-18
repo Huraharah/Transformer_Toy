@@ -12,10 +12,10 @@
 SelfAttention::SelfAttention(const AttentionConfig& config, Random& rng)
     : config_(config),
     embedDim_(config.embedDim),
-    queryProj_(config.embedDim, config.embedDim, rng),
-    keyProj_(config.embedDim, config.embedDim, rng),
-    valueProj_(config.embedDim, config.embedDim, rng),
-    outputProj_(config.embedDim, config.embedDim, rng),
+    queryProj_(config.embedDim, config.embedDim, rng, config.use_bias),
+    keyProj_(config.embedDim, config.embedDim, rng, config.use_bias),
+    valueProj_(config.embedDim, config.embedDim, rng, config.use_bias),
+    outputProj_(config.embedDim, config.embedDim, rng, config.use_bias),
     attentionDropout_(config.attention_dropout, rng),
     projectionDropout_(config.projection_dropout, rng) {
 }
@@ -145,7 +145,9 @@ Tensor SelfAttention::forward(const Tensor& input){
             for (size_t t = 0; t < sequenceLength; ++t) {
                 std::vector<float> scores(sequenceLength, -1.0e9f);
 
-                for (size_t j = 0; j <= t; ++j) {
+                size_t keyLimit = config_.causal ? t + 1 : sequenceLength;
+
+                for (size_t j = 0; j < keyLimit; ++j) {
                     float dot = 0.0f;
 
                     for (size_t f = 0; f < embedDim_; ++f) {
@@ -173,7 +175,9 @@ Tensor SelfAttention::forward(const Tensor& input){
                     size_t idx = f;
                     float sum = 0.0f;
 
-                    for (size_t j = 0; j <= t; ++j) {
+                    size_t keyLimit = config_.causal ? t + 1 : sequenceLength;
+
+                    for (size_t j = 0; j < keyLimit; ++j) {
                         sum += cachedDroppedAttentionWeights_.at({ b, t, j }) * V.at({ b, j, idx });
                     }
 
@@ -332,7 +336,9 @@ Tensor SelfAttention::backward(const Tensor& gradOutput) {
 
         for (size_t b = 0; b < batchSize; ++b) {
             for (size_t t = 0; t < sequenceLength; ++t) {
-                for (size_t j = 0; j <= t; ++j) {
+                size_t keyLimit = config_.causal ? t + 1 : sequenceLength;
+
+                for (size_t j = 0; j < keyLimit; ++j) {
                     float dot = 0.0f;
 
                     for (size_t f = 0; f < embedDim_; ++f) {
@@ -357,14 +363,15 @@ Tensor SelfAttention::backward(const Tensor& gradOutput) {
         for (size_t b = 0; b < batchSize; ++b) {
             for (size_t t = 0; t < sequenceLength; ++t) {
                 float weightedSum = 0.0f;
+                size_t keyLimit = config_.causal ? t + 1 : sequenceLength;
 
-                for (size_t j = 0; j <= t; ++j) {
+                for (size_t j = 0; j < keyLimit; ++j) {
                     weightedSum +=
                         gradAttentionWeights.at({ b, t, j }) *
                         cachedAttentionWeights_.at({ b, t, j });
                 }
 
-                for (size_t j = 0; j <= t; ++j) {
+                for (size_t j = 0; j < keyLimit; ++j) {
                     float gradScore =
                         cachedAttentionWeights_.at({ b, t, j }) *
                         (
@@ -464,10 +471,10 @@ MultiHeadAttention::MultiHeadAttention(const AttentionConfig& config, Random& rn
     embedDim_(config.embedDim),
     numHeads_(config.numHeads),
     headDim_(config.embedDim / config.numHeads),
-    queryProj_(config.embedDim, config.embedDim, rng),
-    keyProj_(config.embedDim, config.embedDim, rng),
-    valueProj_(config.embedDim, config.embedDim, rng),
-    outputProj_(config.embedDim, config.embedDim, rng),
+    queryProj_(config.embedDim, config.embedDim, rng, config.use_bias),
+    keyProj_(config.embedDim, config.embedDim, rng, config.use_bias),
+    valueProj_(config.embedDim, config.embedDim, rng, config.use_bias),
+    outputProj_(config.embedDim, config.embedDim, rng, config.use_bias),
     attentionDropout_(config.attention_dropout, rng),
     projectionDropout_(config.projection_dropout, rng) {
 }
@@ -601,8 +608,9 @@ Tensor MultiHeadAttention::forward(const Tensor& input){
             for (size_t h = 0; h < numHeads_; ++h) {
                 for (size_t t = 0; t < sequenceLength; ++t) {
                     std::vector<float> scores(sequenceLength, -1.0e9f);
+                    size_t keyLimit = config_.causal ? t + 1 : sequenceLength;
 
-                    for (size_t j = 0; j <= t; ++j) {
+                    for (size_t j = 0; j < keyLimit; ++j) {
                         float dot = 0.0f;
 
                         for (size_t f = 0; f < headDim_; ++f) {
@@ -630,8 +638,9 @@ Tensor MultiHeadAttention::forward(const Tensor& input){
                     for (size_t f = 0; f < headDim_; ++f) {
                         size_t idx = h * headDim_ + f;
                         float sum = 0.0f;
+                        size_t keyLimit = config_.causal ? t + 1 : sequenceLength;
 
-                        for (size_t j = 0; j <= t; ++j) {
+                        for (size_t j = 0; j < keyLimit; ++j) {
                             sum += cachedDroppedAttentionWeights_.at({ b, h, t, j }) * V.at({ b, j, idx });
                         }
 
@@ -800,7 +809,9 @@ Tensor MultiHeadAttention::backward(const Tensor& gradOutput) {
         for (size_t b = 0; b < batchSize; ++b) {
             for (size_t h = 0; h < numHeads_; ++h) {
                 for (size_t t = 0; t < sequenceLength; ++t) {
-                    for (size_t j = 0; j <= t; ++j) {
+                    size_t keyLimit = config_.causal ? t + 1 : sequenceLength;
+
+                    for (size_t j = 0; j < keyLimit; ++j) {
                         float dot = 0.0f;
 
                         for (size_t f = 0; f < headDim_; ++f) {
@@ -827,14 +838,15 @@ Tensor MultiHeadAttention::backward(const Tensor& gradOutput) {
             for (size_t h = 0; h < numHeads_; ++h) {
                 for (size_t t = 0; t < sequenceLength; ++t) {
                     float weightedSum = 0.0f;
+                    size_t keyLimit = config_.causal ? t + 1 : sequenceLength;
 
-                    for (size_t j = 0; j <= t; ++j) {
+                    for (size_t j = 0; j < keyLimit; ++j) {
                         weightedSum +=
                             gradAttentionWeights.at({ b, h, t, j }) *
                             cachedAttentionWeights_.at({ b, h, t, j });
                     }
 
-                    for (size_t j = 0; j <= t; ++j) {
+                    for (size_t j = 0; j < keyLimit; ++j) {
                         float gradScore =
                             cachedAttentionWeights_.at({ b, h, t, j }) *
                             (

@@ -4,9 +4,10 @@
 #include <cmath>
 #include <stdexcept>
 
-Linear::Linear(size_t inFeatures, size_t outFeatures, Random& rng)
+Linear::Linear(size_t inFeatures, size_t outFeatures, Random& rng, bool useBias)
     : inFeatures_(inFeatures),
     outFeatures_(outFeatures),
+    useBias_(useBias),
     weights_(Tensor({ outFeatures, inFeatures }), "linear.weight"),
     bias_(Tensor({ outFeatures }, 0.0f), "linear.bias") {
 
@@ -49,7 +50,8 @@ Tensor Linear::forward(const Tensor& input) {
             output.deviceData(),
             batchSize,
             inFeatures_,
-            outFeatures_
+            outFeatures_,
+            useBias_
         );
 
         return output;
@@ -59,7 +61,7 @@ Tensor Linear::forward(const Tensor& input) {
 
         for (size_t b = 0; b < batchSize; ++b) {
             for (size_t o = 0; o < outFeatures_; ++o) {
-                float sum = bias_.value[o];
+                float sum = useBias_ ? bias_.value[o] : 0.0f;
 
                 for (size_t i = 0; i < inFeatures_; ++i) {
                     sum += input.at({ b, i }) * weights_.value.at({ o, i });
@@ -116,7 +118,8 @@ Tensor Linear::backward(Tensor& gradOutput)
             bias_.grad.deviceData(),
             batchSize,
             inFeatures_,
-            outFeatures_
+            outFeatures_,
+            useBias_
         );
 
         return gradInput;
@@ -125,13 +128,17 @@ Tensor Linear::backward(Tensor& gradOutput)
     Tensor gradInput({ batchSize, inFeatures_ }, 0.0f);
 
     weights_.grad.fill(0.0f);
-    bias_.grad.fill(0.0f);
+    if (useBias_) {
+        bias_.grad.fill(0.0f);
+    }
 
     for (size_t b = 0; b < batchSize; ++b) {
         for (size_t o = 0; o < outFeatures_; ++o) {
             float go = gradOutput.at({ b, o });
 
-            bias_.grad[o] += go;
+            if (useBias_) {
+                bias_.grad[o] += go;
+            }
 
             for (size_t i = 0; i < inFeatures_; ++i) {
                 weights_.grad.at({ o, i }) += go * cachedInput_.at({ b, i });
@@ -152,5 +159,9 @@ const Tensor& Linear::bias() const {
 }
 
 std::vector<Parameter*> Linear::parameters() {
-    return { &weights_, &bias_ };
+    if (useBias_) {
+        return { &weights_, &bias_ };
+    }
+
+    return { &weights_ };
 }

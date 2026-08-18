@@ -24,5 +24,6 @@ void launchLinearBackward(
     float* gradBias,
     size_t batchSize,
     size_t inFeatures,
-    size_t outFeatures
+    size_t outFeatures,
+    bool useBias
 );
