@@ -78,6 +78,7 @@ private:
     Tensor cachedK_;
     Tensor cachedV_;
     Tensor cachedAttentionWeights_;
+    Tensor cachedDroppedAttentionWeights_;
 
     TrainingProfiler* profiler_ = nullptr;
 

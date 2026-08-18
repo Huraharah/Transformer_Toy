@@ -34,6 +34,7 @@ A matched 53,225-step CUDA shakedown executed through the Python/Jupyter API wit
 - Early stopping and learning-rate scheduling
 - CPU/CUDA parity testing
 - Text generation with temperature and top-k sampling
+- Regularization through dropout configured through multiple layers
 - pybind11 Python API under active development
 
 ## Architecture
@@ -341,15 +342,15 @@ Completed:
 - Apply FFN dropout
 - Apply block residual dropout
 - Apply model embedding dropout
+- Apply attention dropout
+- Apply attention projection dropout
+- Add training/evaluation mode switching
 
 Planned:
 
-- Apply attention dropout
-- Apply attention projection dropout
 - Honor pre_norm versus post_norm
 - Honor use_bias throughout configured layers
 - Verify causal config behavior
-- Add training/evaluation mode switching
 - Expose mode/config behavior through Python
 - Add CPU/CUDA correctness and parity tests
 

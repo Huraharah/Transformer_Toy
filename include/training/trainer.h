@@ -41,7 +41,7 @@ private:
     TrainingHistory history;
     TrainingProfiler profiler_;
 
-    Device activeDevice = resolveDevice(config.device);
+    Device activeDevice;
     void synchronizeProfilePhase(Device activeDevice) const;
 
     std::vector<EpochCallback*> callbacks;

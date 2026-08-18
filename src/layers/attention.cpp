@@ -96,11 +96,21 @@ Tensor SelfAttention::forward(const Tensor& input){
             attended = Tensor({ batchSize, sequenceLength, embedDim_ }, 0.0f);
             attended.toCUDA();
 
-            launchSelfAttentionForward(
+            launchSelfAttentionWeightsForward(
                 cachedQ_.deviceData(),
                 cachedK_.deviceData(),
-                cachedV_.deviceData(),
                 cachedAttentionWeights_.deviceData(),
+                batchSize,
+                sequenceLength,
+                embedDim_
+            );
+
+            cachedDroppedAttentionWeights_ =
+                attentionDropout_.forward(cachedAttentionWeights_);
+
+            launchSelfAttentionValuesForward(
+                cachedV_.deviceData(),
+                cachedDroppedAttentionWeights_.deviceData(),
                 attended.deviceData(),
                 batchSize,
                 sequenceLength,
@@ -139,7 +149,8 @@ Tensor SelfAttention::forward(const Tensor& input){
                     float dot = 0.0f;
 
                     for (size_t f = 0; f < embedDim_; ++f) {
-                        dot += Q.at({ b, t, f }) * K.at({ b, j, f });
+                        size_t idx = f;
+                        dot += Q.at({ b, t, idx }) * K.at({ b, j, idx });
                     }
 
                     scores[j] = dot * scale;
@@ -148,27 +159,28 @@ Tensor SelfAttention::forward(const Tensor& input){
                 std::vector<float> weights = MathUtils::softmax(scores);
 
                 for (size_t j = 0; j < sequenceLength; ++j) {
-                    cachedAttentionWeights_.at({ b, t, j }) = weights[j];
+                    cachedAttentionWeights_.at({ b,  t, j }) = weights[j];
                 }
+            }
+            
+        }
 
-                /*std::cout << "Token " << t << " weights: ";
+        cachedDroppedAttentionWeights_ = attentionDropout_.forward(cachedAttentionWeights_);
 
-                for (size_t j = 0; j < sequenceLength; ++j) {
-                    std::cout << weights[j] << " ";
-                }
-
-                std::cout << "\n";*/
-
+        for (size_t b = 0; b < batchSize; ++b) {
+            for (size_t t = 0; t < sequenceLength; ++t) {
                 for (size_t f = 0; f < embedDim_; ++f) {
+                    size_t idx = f;
                     float sum = 0.0f;
 
                     for (size_t j = 0; j <= t; ++j) {
-                        sum += weights[j] * V.at({ b, j, f });
+                        sum += cachedDroppedAttentionWeights_.at({ b, t, j }) * V.at({ b, j, idx });
                     }
 
-                    attentionOutput.at({ b, t, f }) = sum;
+                    attentionOutput.at({ b, t, idx }) = sum;
                 }
             }
+            
         }
 
         {
@@ -210,6 +222,8 @@ Tensor SelfAttention::backward(const Tensor& gradOutput) {
     Tensor gradInputV;
 
     Tensor gradInputFlat;
+
+    Tensor gradDroppedWeights({ batchSize, sequenceLength, sequenceLength }, 0.0f);
     {
         ScopedProfile profile(profiler_, ProfilePhase::AttentionFlattenBackward, gradOutput.device());
 
@@ -245,15 +259,34 @@ Tensor SelfAttention::backward(const Tensor& gradOutput) {
             gradK.toCUDA();
             gradV.toCUDA();
 
-            launchSelfAttentionBackward(
+            Tensor gradDroppedWeights(
+                { batchSize, sequenceLength, sequenceLength },
+                0.0f
+            );
+
+            gradDroppedWeights.toCUDA();
+
+            launchSelfAttentionBackwardValues(
+                cachedV_.deviceData(),
+                cachedDroppedAttentionWeights_.deviceData(),
+                gradConcat.deviceData(),
+                gradDroppedWeights.deviceData(),
+                gradV.deviceData(),
+                batchSize,
+                sequenceLength,
+                embedDim_
+            );
+
+            Tensor gradAttentionWeights =
+                attentionDropout_.backward(gradDroppedWeights);
+
+            launchSelfAttentionBackwardWeights(
                 cachedQ_.deviceData(),
                 cachedK_.deviceData(),
-                cachedV_.deviceData(),
                 cachedAttentionWeights_.deviceData(),
-                gradConcat.deviceData(),
+                gradAttentionWeights.deviceData(),
                 gradQ.deviceData(),
                 gradK.deviceData(),
-                gradV.deviceData(),
                 batchSize,
                 sequenceLength,
                 embedDim_
@@ -299,44 +332,56 @@ Tensor SelfAttention::backward(const Tensor& gradOutput) {
 
         for (size_t b = 0; b < batchSize; ++b) {
             for (size_t t = 0; t < sequenceLength; ++t) {
-                std::vector<float> gradWeights(sequenceLength, 0.0f);
-
                 for (size_t j = 0; j <= t; ++j) {
                     float dot = 0.0f;
 
                     for (size_t f = 0; f < embedDim_; ++f) {
-                        dot += gradConcat.at({ b, t, f }) *
-                            cachedV_.at({ b, j, f });
+                        size_t idx = f;
 
-                        gradV.at({ b, j, f }) +=
-                            cachedAttentionWeights_.at({ b, t, j }) *
-                            gradConcat.at({ b, t, f });
+                        dot +=
+                            gradConcat.at({ b, t, idx }) *
+                            cachedV_.at({ b, j, idx });
+
+                        gradV.at({ b, j, idx }) +=
+                            cachedDroppedAttentionWeights_.at({ b, t, j }) *
+                            gradConcat.at({ b, t, idx });
                     }
 
-                    gradWeights[j] = dot;
+                    gradDroppedWeights.at({ b, t, j }) = dot;
                 }
+            }
+        }
 
+        Tensor gradAttentionWeights = attentionDropout_.backward(gradDroppedWeights);
+
+        for (size_t b = 0; b < batchSize; ++b) {
+            for (size_t t = 0; t < sequenceLength; ++t) {
                 float weightedSum = 0.0f;
 
                 for (size_t j = 0; j <= t; ++j) {
                     weightedSum +=
-                        gradWeights[j] *
+                        gradAttentionWeights.at({ b, t, j }) *
                         cachedAttentionWeights_.at({ b, t, j });
                 }
 
                 for (size_t j = 0; j <= t; ++j) {
                     float gradScore =
                         cachedAttentionWeights_.at({ b, t, j }) *
-                        (gradWeights[j] - weightedSum);
+                        (
+                            gradAttentionWeights.at({ b, t, j }) -
+                            weightedSum
+                            );
 
                     gradScore *= scale;
 
                     for (size_t f = 0; f < embedDim_; ++f) {
-                        gradQ.at({ b, t, f }) +=
-                            gradScore * cachedK_.at({ b, j, f });
+                        size_t idx = f;
 
-                        gradK.at({ b, j, f }) +=
-                            gradScore * cachedQ_.at({ b, t, f });
+                        gradQ.at({ b, t, idx }) +=
+                            gradScore * cachedK_.at({ b, j, idx });
+
+                        gradK.at({ b, j, idx }) +=
+                            gradScore * cachedQ_.at({ b, t, idx });
                     }
                 }
             }
@@ -503,17 +548,28 @@ Tensor MultiHeadAttention::forward(const Tensor& input){
         {
             ScopedProfile profile(profiler_, ProfilePhase::AttentionKernelForward, input.device());
 
-            launchMultiHeadAttentionForward(
+            launchMultiHeadAttentionWeightsForward(
                 cachedQ_.deviceData(),
                 cachedK_.deviceData(),
-                cachedV_.deviceData(),
                 cachedAttentionWeights_.deviceData(),
+                batchSize,
+                sequenceLength,
+                numHeads_,
+                headDim_
+            );
+
+            cachedDroppedAttentionWeights_ = attentionDropout_.forward(cachedAttentionWeights_);
+
+            launchMultiHeadAttentionValuesForward(
+                cachedV_.deviceData(),
+                cachedDroppedAttentionWeights_.deviceData(),
                 attended.deviceData(),
                 batchSize,
                 sequenceLength,
                 numHeads_,
                 headDim_
             );
+
         }
 
         {
@@ -562,13 +618,21 @@ Tensor MultiHeadAttention::forward(const Tensor& input){
                     for (size_t j = 0; j < sequenceLength; ++j) {
                         cachedAttentionWeights_.at({ b, h, t, j }) = weights[j];
                     }
+                }
+            }
+        }
 
+        cachedDroppedAttentionWeights_ = attentionDropout_.forward(cachedAttentionWeights_);
+
+        for (size_t b = 0; b < batchSize; ++b) {
+            for (size_t h = 0; h < numHeads_; ++h) {
+                for (size_t t = 0; t < sequenceLength; ++t) {
                     for (size_t f = 0; f < headDim_; ++f) {
                         size_t idx = h * headDim_ + f;
                         float sum = 0.0f;
 
                         for (size_t j = 0; j <= t; ++j) {
-                            sum += weights[j] * V.at({ b, j, idx });
+                            sum += cachedDroppedAttentionWeights_.at({ b, h, t, j }) * V.at({ b, j, idx });
                         }
 
                         attentionOutput.at({ b, t, idx }) = sum;
@@ -578,19 +642,19 @@ Tensor MultiHeadAttention::forward(const Tensor& input){
         }
     }
 
-        {
-            ScopedProfile profile(profiler_, ProfilePhase::AttentionOutputProjectionForward, attentionOutput.device());
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionOutputProjectionForward, attentionOutput.device());
 
-            attentionOutput.reshape({ batchSize * sequenceLength, embedDim_ });
-            projectedFlat = outputProj_.forward(attentionOutput);
-            projectedFlat = projectionDropout_.forward(projectedFlat);
-        }
+        attentionOutput.reshape({ batchSize * sequenceLength, embedDim_ });
+        projectedFlat = outputProj_.forward(attentionOutput);
+        projectedFlat = projectionDropout_.forward(projectedFlat);
+    }
 
-        {
-            ScopedProfile profile(profiler_, ProfilePhase::AttentionUnflattenForward, projectedFlat.device());
+    {
+        ScopedProfile profile(profiler_, ProfilePhase::AttentionUnflattenForward, projectedFlat.device());
 
-            projectedFlat.reshape({ batchSize, sequenceLength, embedDim_ });
-        }
+        projectedFlat.reshape({ batchSize, sequenceLength, embedDim_ });
+    }
 
         return projectedFlat;
 }
@@ -620,6 +684,8 @@ Tensor MultiHeadAttention::backward(const Tensor& gradOutput) {
     Tensor gradInputV;
 
     Tensor gradInputFlat;
+
+    Tensor gradDroppedWeights({ batchSize, numHeads_, sequenceLength, sequenceLength }, 0.0f);
 
     {
         ScopedProfile profile(profiler_, ProfilePhase::AttentionFlattenBackward, gradOutput.device());
@@ -654,15 +720,31 @@ Tensor MultiHeadAttention::backward(const Tensor& gradOutput) {
 
         {
             ScopedProfile profile(profiler_, ProfilePhase::AttentionKernelBackward, gradConcat.device());
-            launchMultiHeadAttentionBackward(
+
+            cachedDroppedAttentionWeights_.toCUDA();
+            gradDroppedWeights.toCUDA();
+
+            launchMultiHeadAttentionBackwardValues(
+                cachedV_.deviceData(),
+                cachedDroppedAttentionWeights_.deviceData(),
+                gradConcat.deviceData(),
+                gradDroppedWeights.deviceData(),
+                gradV.deviceData(),
+                batchSize,
+                sequenceLength,
+                numHeads_,
+                headDim_
+            );
+
+            Tensor gradAttentionWeights = attentionDropout_.backward(gradDroppedWeights);
+        
+            launchMultiHeadAttentionBackwardWeights(
                 cachedQ_.deviceData(),
                 cachedK_.deviceData(),
-                cachedV_.deviceData(),
                 cachedAttentionWeights_.deviceData(),
                 gradConcat.deviceData(),
                 gradQ.deviceData(),
                 gradK.deviceData(),
-                gradV.deviceData(),
                 batchSize,
                 sequenceLength,
                 numHeads_,
@@ -718,37 +800,47 @@ Tensor MultiHeadAttention::backward(const Tensor& gradOutput) {
         for (size_t b = 0; b < batchSize; ++b) {
             for (size_t h = 0; h < numHeads_; ++h) {
                 for (size_t t = 0; t < sequenceLength; ++t) {
-                    std::vector<float> gradWeights(sequenceLength, 0.0f);
-
                     for (size_t j = 0; j <= t; ++j) {
                         float dot = 0.0f;
 
                         for (size_t f = 0; f < headDim_; ++f) {
-                            size_t globalF = h * headDim_ + f;
+                            size_t idx = h * headDim_ + f;
 
-                            dot += gradConcat.at({ b, t, globalF }) *
-                                cachedV_.at({ b, j, globalF });
+                            dot +=
+                                gradConcat.at({ b, t, idx }) *
+                                cachedV_.at({ b, j, idx });
 
-                            gradV.at({ b, j, globalF }) +=
-                                cachedAttentionWeights_.at({ b, h, t, j }) *
-                                gradConcat.at({ b, t, globalF });
+                            gradV.at({ b, j, idx }) +=
+                                cachedDroppedAttentionWeights_.at({ b, h, t, j }) *
+                                gradConcat.at({ b, t, idx });
                         }
 
-                        gradWeights[j] = dot;
+                        gradDroppedWeights.at({ b, h, t, j }) = dot;
                     }
+                }
+            }
+        }
 
+        Tensor gradAttentionWeights = attentionDropout_.backward(gradDroppedWeights);
+
+        for (size_t b = 0; b < batchSize; ++b) {
+            for (size_t h = 0; h < numHeads_; ++h) {
+                for (size_t t = 0; t < sequenceLength; ++t) {
                     float weightedSum = 0.0f;
 
                     for (size_t j = 0; j <= t; ++j) {
                         weightedSum +=
-                            gradWeights[j] *
+                            gradAttentionWeights.at({ b, h, t, j }) *
                             cachedAttentionWeights_.at({ b, h, t, j });
                     }
 
                     for (size_t j = 0; j <= t; ++j) {
                         float gradScore =
                             cachedAttentionWeights_.at({ b, h, t, j }) *
-                            (gradWeights[j] - weightedSum);
+                            (
+                                gradAttentionWeights.at({ b, h, t, j }) -
+                                weightedSum
+                                );
 
                         gradScore *= scale;
 

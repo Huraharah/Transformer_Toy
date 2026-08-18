@@ -319,83 +319,101 @@ std::string Transformer::generate(
     size_t topK,
     Random& rng
 ) {
-    if (temperature <= 0.0f) {
-        throw std::invalid_argument("Temperature must be > 0.");
-    }
+    const bool wasTraining = isTraining();
 
-    if (topK == 0 || topK > vocabSize_) {
-        topK = vocabSize_;
-    }
+    eval();
 
-    std::vector<int> tokenIds = tokenizer.encode(prompt);
-
-    for (size_t step = 0; step < maxNewTokens; ++step) {
-        size_t start = 0;
-
-        if (tokenIds.size() > maxSequenceLength_) {
-            start = tokenIds.size() - maxSequenceLength_;
+    try {
+        if (temperature <= 0.0f) {
+            throw std::invalid_argument("Temperature must be > 0.");
         }
 
-        size_t currentLength = tokenIds.size() - start;
-
-        Tensor input({ 1, currentLength }, 0.0f);
-
-        for (size_t i = 0; i < currentLength; ++i) {
-            input.at({ 0, i }) =
-                static_cast<float>(tokenIds[start + i]);
+        if (topK == 0 || topK > vocabSize_) {
+            topK = vocabSize_;
         }
 
-        Tensor logits = forward(input);
+        std::vector<int> tokenIds = tokenizer.encode(prompt);
 
-        size_t lastPosition = currentLength - 1;
+        for (size_t step = 0; step < maxNewTokens; ++step) {
+            size_t start = 0;
 
-        std::vector<std::pair<float, size_t>> candidates;
-        candidates.reserve(vocabSize_);
-
-        for (size_t v = 0; v < vocabSize_; ++v) {
-            float scaledLogit =
-                logits.at({ 0, lastPosition, v }) / temperature;
-
-            candidates.push_back({ scaledLogit, v });
-        }
-
-        std::sort(
-            candidates.begin(),
-            candidates.end(),
-            [](const auto& a, const auto& b) {
-                return a.first > b.first;
+            if (tokenIds.size() > maxSequenceLength_) {
+                start = tokenIds.size() - maxSequenceLength_;
             }
-        );
 
-        std::vector<float> topLogits;
-        std::vector<size_t> topIds;
+            size_t currentLength = tokenIds.size() - start;
 
-        for (size_t i = 0; i < topK; ++i) {
-            topLogits.push_back(candidates[i].first);
-            topIds.push_back(candidates[i].second);
-        }
+            Tensor input({ 1, currentLength }, 0.0f);
 
-        std::vector<float> probabilities =
-            MathUtils::softmax(topLogits);
-
-        float sample = rng.uniform(0.0f, 1.0f);
-
-        float cumulative = 0.0f;
-        size_t selectedId = topIds.back();
-
-        for (size_t i = 0; i < probabilities.size(); ++i) {
-            cumulative += probabilities[i];
-
-            if (sample <= cumulative) {
-                selectedId = topIds[i];
-                break;
+            for (size_t i = 0; i < currentLength; ++i) {
+                input.at({ 0, i }) =
+                    static_cast<float>(tokenIds[start + i]);
             }
+
+            Tensor logits = forward(input);
+
+            size_t lastPosition = currentLength - 1;
+
+            std::vector<std::pair<float, size_t>> candidates;
+            candidates.reserve(vocabSize_);
+
+            for (size_t v = 0; v < vocabSize_; ++v) {
+                float scaledLogit =
+                    logits.at({ 0, lastPosition, v }) / temperature;
+
+                candidates.push_back({ scaledLogit, v });
+            }
+
+            std::sort(
+                candidates.begin(),
+                candidates.end(),
+                [](const auto& a, const auto& b) {
+                    return a.first > b.first;
+                }
+            );
+
+            std::vector<float> topLogits;
+            std::vector<size_t> topIds;
+
+            for (size_t i = 0; i < topK; ++i) {
+                topLogits.push_back(candidates[i].first);
+                topIds.push_back(candidates[i].second);
+            }
+
+            std::vector<float> probabilities =
+                MathUtils::softmax(topLogits);
+
+            float sample = rng.uniform(0.0f, 1.0f);
+
+            float cumulative = 0.0f;
+            size_t selectedId = topIds.back();
+
+            for (size_t i = 0; i < probabilities.size(); ++i) {
+                cumulative += probabilities[i];
+
+                if (sample <= cumulative) {
+                    selectedId = topIds[i];
+                    break;
+                }
+            }
+
+            tokenIds.push_back(selectedId);
         }
 
-        tokenIds.push_back(selectedId);
-    }
+        std::string result = tokenizer.decode(tokenIds);
 
-    return tokenizer.decode(tokenIds);
+        if (wasTraining) {
+            train();
+        }
+            return result;
+    }
+    catch (...) {
+        if (wasTraining) {
+            train();
+        }
+
+        throw;
+    }
 }
 
 std::string Transformer::generate(
@@ -406,11 +424,7 @@ std::string Transformer::generate(
 ) {
     config.validate();
 
-    const bool wasTraining = isTraining();
-
-    eval();
-
-    std::string result = generate(
+    return generate(
         prompt,
         tokenizer,
         config.maxNewTokens,
@@ -418,12 +432,6 @@ std::string Transformer::generate(
         config.topK,
         rng
     );
-
-    if (wasTraining) {
-        train();
-    }
-
-    return result;
 }
 
 std::vector<Parameter*> Transformer::parameters() {

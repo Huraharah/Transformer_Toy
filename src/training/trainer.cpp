@@ -18,7 +18,8 @@ Trainer::Trainer(
     model(model_),
     lossFunction(lossFunction_),
     optimizer(optimizer_),
-    profiler_(config.enableProfiling){ 
+    profiler_(config.enableProfiling),
+    activeDevice(resolveDevice(config.device)){ 
 }
 
 TrainingHistory& Trainer::getHistory() {
@@ -45,8 +46,7 @@ void Trainer::train(
         );
     }
 
-    const Device activeDevice =
-        resolveDevice(config.device);
+    model.train();
 
     /*
         Configure and reset the profiler before attaching it to the
@@ -568,13 +568,13 @@ void Trainer::train(
 float Trainer::evaluate(
     const std::vector<TrainingBatch>& validationBatches
 ) {
-    const bool wasTraining = model.isTraining();
-
-    model.eval();
-
     if (validationBatches.empty()) {
         throw std::invalid_argument("Trainer::evaluate received empty validation batches.");
     }
+
+    const bool wasTraining = model.isTraining();
+
+    model.eval();
 
     float totalLoss = 0.0f;
 
