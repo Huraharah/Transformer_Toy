@@ -39,6 +39,7 @@
 #include "training/generation_callback.h"
 #include "training/learning_rate_scheduler_callback.h"
 #include "training/checkpoint_callback.h"
+#include "layers/dropout.h"
 
 
 namespace py = pybind11;
@@ -254,14 +255,20 @@ namespace {
                 float,
                 float,
                 bool,
-                bool
+                bool,
+                bool,
+                float,
+                float
                 >(),
                 py::arg("d_model"),
                 py::arg("d_ff"),
                 py::arg("residual_dropout") = 0.0f,
                 py::arg("ffn_dropout") = 0.0f,
                 py::arg("pre_norm") = true,
-                py::arg("use_bias") = true
+                py::arg("use_bias") = true,
+                py::arg("causal") = true,
+                py::arg("attention_dropout") = 0.0f,
+                py::arg("projection_dropout") = 0.0f
             )
             .def_readwrite(
                 "d_model",
@@ -294,6 +301,18 @@ namespace {
             .def_readwrite(
                 "num_heads",
                 &TransformerBlockConfig::numHeads
+            )
+            .def_readwrite(
+                "attention_dropout",
+                &TransformerBlockConfig::attention_dropout
+            )
+            .def_readwrite(
+                "projection_dropout",
+                &TransformerBlockConfig::projection_dropout
+            )
+            .def_readwrite(
+                "causal",
+                &TransformerBlockConfig::causal
             )
             .def(
                 "validate",
@@ -1302,11 +1321,13 @@ namespace {
                 py::init<
                 size_t,
                 size_t,
-                Random&
+                Random&,
+                bool
                 >(),
                 py::arg("in_features"),
                 py::arg("out_features"),
                 py::arg("rng"),
+                py::arg("use_bias") = true,
                 "Create a linear layer with randomly initialized weights."
             )
 
@@ -1558,11 +1579,12 @@ namespace {
             "Two-layer feed-forward network with GELU activation."
         )
             .def(
-                py::init<size_t, size_t, float, Random&>(),
+                py::init<size_t, size_t, float, Random&, bool>(),
                 py::arg("embed_dim"),
                 py::arg("hidden_dim"),
                 py::arg("dropout_probability"),
                 py::arg("rng"),
+                py::arg("use_bias") = true,
                 "Create a feed-forward network."
             )
 
@@ -1625,6 +1647,21 @@ namespace {
                         std::to_string(hiddenDim) +
                         ")";
                 }
+            )
+
+            .def(
+                "train",
+                &FFN::train
+            )
+
+            .def(
+                "eval",
+                &FFN::eval
+            )
+
+            .def_property_readonly(
+                "isTraining",
+                &FFN::isTraining
             );
     }
 
@@ -1698,6 +1735,21 @@ namespace {
                         std::to_string(embedDim) +
                         ")";
                 }
+            )
+
+            .def(
+                "train",
+                &SelfAttention::train
+            )
+
+            .def(
+                "eval",
+                &SelfAttention::eval
+            )
+
+            .def_property_readonly(
+                "isTraining",
+                &SelfAttention::isTraining
             );
 
 
@@ -1772,6 +1824,21 @@ namespace {
                         std::to_string(embedDim) +
                         ")";
                 }
+            )
+
+            .def(
+                "train",
+                &MultiHeadAttention::train
+            )
+
+            .def(
+                "eval",
+                &MultiHeadAttention::eval
+            )
+
+            .def_property_readonly(
+                "isTraining",
+                &MultiHeadAttention::isTraining
             );
     }
 
@@ -1855,6 +1922,21 @@ namespace {
                         std::to_string(parameters.size()) +
                         ")";
                 }
+            )
+
+            .def(
+                "train",
+                &TransformerBlock::train
+            )
+
+            .def(
+                "eval",
+                &TransformerBlock::eval
+            )
+
+            .def_property_readonly(
+                "isTraining",
+                &TransformerBlock::isTraining
             );
     }
 
@@ -2541,6 +2623,21 @@ namespace {
 
                     return result;
                 }
+            )
+
+            .def(
+                "train",
+                &TrainableModel::train
+            )
+
+            .def(
+                "eval",
+                &TrainableModel::eval
+            )
+
+            .def_property_readonly(
+                "isTraining",
+                &TrainableModel::isTraining
             );
     }
 
@@ -3006,6 +3103,54 @@ namespace {
             );
     }
 
+    void bindDropout(py::module_& module) {
+        py::class_<Dropout>(
+            module,
+            "Dropout"
+        )
+            .def(
+                py::init
+                <float,
+                Random&
+                >(),
+                py::arg("probability"),
+                py::arg("rng")
+            )
+
+            .def(
+                "forward",
+                &Dropout::forward,
+                py::arg("input")
+            )
+
+            .def(
+                "backward",
+                &Dropout::backward,
+                py::arg("gradOutput")
+            )
+
+            .def(
+                "train",
+                &Dropout::train
+            )
+
+            .def(
+                "eval",
+                &Dropout::eval
+            )
+
+            .def_property_readonly(
+                "isTraining",
+                &Dropout::isTraining
+            )
+
+            .def_property_readonly(
+                "probability",
+                &Dropout::probability
+            );
+
+    }
+
 } // namespace
 
 PYBIND11_MODULE(_transformer_toy, module) {
@@ -3033,6 +3178,7 @@ PYBIND11_MODULE(_transformer_toy, module) {
     bindRandom(module);
 	bindTextDataset(module);
 	bindParameter(module);
+    bindDropout(module);
     bindLinear(module);
 	bindEmbedding(module);
 	bindLayerNorm(module);
