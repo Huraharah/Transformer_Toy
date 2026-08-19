@@ -348,10 +348,10 @@ Completed:
 - Add training/evaluation mode switching
 - Honor pre_norm versus post_norm
 - Honor use_bias throughout configured layers
+- Verify causal config behavior
 
 Planned:
 
-- Verify causal config behavior
 - Expose mode/config behavior through Python
 - Add CPU/CUDA correctness and parity tests
 

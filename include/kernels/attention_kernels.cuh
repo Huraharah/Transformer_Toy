@@ -9,7 +9,8 @@ void launchSelfAttentionWeightsForward(
     float* attentionWeights,
     size_t batchSize,
     size_t sequenceLength,
-    size_t embedDim
+    size_t embedDim,
+    bool causal
 );
 
 void launchSelfAttentionValuesForward(
@@ -18,7 +19,8 @@ void launchSelfAttentionValuesForward(
     float* output,
     size_t batchSize,
     size_t sequenceLength,
-    size_t embedDim
+    size_t embedDim,
+    bool causal
 );
 
 void launchSelfAttentionBackwardValues(
@@ -29,7 +31,8 @@ void launchSelfAttentionBackwardValues(
     float* gradV,
     size_t batchSize,
     size_t sequenceLength,
-    size_t embedDim
+    size_t embedDim,
+    bool causal
 );
 
 void launchSelfAttentionBackwardWeights(
@@ -41,7 +44,8 @@ void launchSelfAttentionBackwardWeights(
     float* gradK,
     size_t batchSize,
     size_t sequenceLength,
-    size_t embedDim
+    size_t embedDim,
+    bool causal
 );
 
 void launchMultiHeadAttentionWeightsForward(
@@ -51,7 +55,8 @@ void launchMultiHeadAttentionWeightsForward(
     size_t batchSize,
     size_t sequenceLength,
     size_t numHeads,
-    size_t headDim
+    size_t headDim,
+    bool causal
 );
 
 void launchMultiHeadAttentionValuesForward(
@@ -61,7 +66,8 @@ void launchMultiHeadAttentionValuesForward(
     size_t batchSize,
     size_t sequenceLength,
     size_t numHeads,
-    size_t headDim
+    size_t headDim,
+    bool causal
 );
 
 void launchMultiHeadAttentionBackwardValues(
@@ -73,7 +79,8 @@ void launchMultiHeadAttentionBackwardValues(
     size_t batchSize,
     size_t sequenceLength,
     size_t numHeads,
-    size_t headDim
+    size_t headDim,
+    bool causal
 );
 
 void launchMultiHeadAttentionBackwardWeights(
@@ -86,5 +93,6 @@ void launchMultiHeadAttentionBackwardWeights(
     size_t batchSize,
     size_t sequenceLength,
     size_t numHeads,
-    size_t headDim
+    size_t headDim,
+    bool causal
 );
